@@ -248,6 +248,7 @@ class YoutubeDownloaderApp(ctk.CTk):
 
         
         # 상태 변수들
+        self.stop_requested = False
         self.save_dir_var = ctk.StringVar(value=os.path.normpath(os.getcwd()))
         self.queue_items = []  # 대기열 목록: [{title, url, duration, uploader, check_var, status}]
         self.search_results = []
@@ -486,7 +487,7 @@ class YoutubeDownloaderApp(ctk.CTk):
             font=("Malgun Gothic", 13, "bold"),
             command=self.start_selected_download
         )
-        self.download_selected_btn.pack(side="left", fill="x", expand=True, padx=(0, 5))
+        self.download_selected_btn.pack(side="left", fill="x", expand=True, padx=(0, 4))
         
         self.download_all_btn = ctk.CTkButton(
             btn_row, 
@@ -497,7 +498,19 @@ class YoutubeDownloaderApp(ctk.CTk):
             font=("Malgun Gothic", 13, "bold"),
             command=self.start_all_download
         )
-        self.download_all_btn.pack(side="right", fill="x", expand=True, padx=(5, 0))
+        self.download_all_btn.pack(side="left", fill="x", expand=True, padx=4)
+        
+        self.stop_download_btn = ctk.CTkButton(
+            btn_row,
+            text="다운로드 중단",
+            height=38,
+            fg_color="#4F5D75",
+            hover_color="#3D4A5E",
+            state="disabled",
+            font=("Malgun Gothic", 13, "bold"),
+            command=self.request_stop_download
+        )
+        self.stop_download_btn.pack(side="right", fill="x", expand=True, padx=(4, 0))
         
         # ----------------------------------------------------
         # 탭 3: 음성 다운로드 목록 구현
@@ -691,6 +704,7 @@ class YoutubeDownloaderApp(ctk.CTk):
             ydl_opts = {
                 'skip_download': True,
                 'extract_flat': True,
+                'noplaylist': True,
                 'quiet': True,
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -750,6 +764,12 @@ class YoutubeDownloaderApp(ctk.CTk):
             item['check_var'].set(True)
         self.start_selected_download()
         
+    def request_stop_download(self):
+        if self.batch_running:
+            self.stop_requested = True
+            self.queue_status_lbl.configure(text="대기열 상태: 중단 요청 중...", text_color="#FF007F")
+            self.stop_download_btn.configure(state="disabled")
+
     def start_selected_download(self):
         if self.batch_running:
             self.show_error("이미 다운로드 대기열이 실행 중입니다.")
@@ -760,10 +780,12 @@ class YoutubeDownloaderApp(ctk.CTk):
             self.show_error("다운로드할(완료되지 않은) 항목을 1개 이상 체크해 주세요.")
             return
             
+        self.stop_requested = False
         self.batch_running = True
         self.download_selected_btn.configure(state="disabled")
         self.download_all_btn.configure(state="disabled")
         self.add_queue_btn.configure(state="disabled")
+        self.stop_download_btn.configure(state="normal", fg_color="#FF007F", hover_color="#CC0066")
         
         # 백그라운드 스레드에서 순차 다운로드 시작
         thread = threading.Thread(
@@ -780,6 +802,9 @@ class YoutubeDownloaderApp(ctk.CTk):
         quality = quality_str.replace("kbps", "")
         
         for num, idx in enumerate(indices_to_download):
+            if self.stop_requested:
+                break
+                
             self.current_download_idx = idx
             item = self.queue_items[idx]
             
@@ -813,6 +838,9 @@ class YoutubeDownloaderApp(ctk.CTk):
         
     def download_single(self, url, format_type, quality):
         def progress_hook(d):
+            if self.stop_requested:
+                raise Exception("Download aborted by user")
+                
             if d['status'] == 'downloading':
                 total = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
                 downloaded = d.get('downloaded_bytes', 0)
@@ -859,6 +887,7 @@ class YoutubeDownloaderApp(ctk.CTk):
                 'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
                 'outtmpl': os.path.join(save_dir, '%(title)s.%(ext)s'),
                 'progress_hooks': [progress_hook],
+                'noplaylist': True,
                 'quiet': True,
             }
         else:
@@ -866,6 +895,7 @@ class YoutubeDownloaderApp(ctk.CTk):
                 'format': 'bestaudio/best',
                 'outtmpl': os.path.join(save_dir, '%(title)s.%(ext)s'),
                 'progress_hooks': [progress_hook],
+                'noplaylist': True,
                 'postprocessors': [{
                     'key': 'FFmpegExtractAudio',
                     'preferredcodec': format_type.lower(),
@@ -890,11 +920,19 @@ class YoutubeDownloaderApp(ctk.CTk):
         self.download_selected_btn.configure(state="normal")
         self.download_all_btn.configure(state="normal")
         self.add_queue_btn.configure(state="normal")
-        self.queue_status_lbl.configure(text="대기열 완료!", text_color="#06D6A0")
-        self.cur_prog_bar.set(1.0)
-        self.cur_stats_lbl.configure(text="")
-        self.total_prog_bar.set(1.0)
-        self.overall_status_lbl.configure(text="전체 진행 상황: 일괄 다운로드 완료!")
+        self.stop_download_btn.configure(state="disabled", fg_color="#4F5D75")
+        
+        if self.stop_requested:
+            self.queue_status_lbl.configure(text="다운로드 중단됨!", text_color="#FF007F")
+            self.cur_prog_bar.set(0.0)
+            self.cur_stats_lbl.configure(text="사용자가 다운로드를 중단했습니다.")
+            self.stop_requested = False
+        else:
+            self.queue_status_lbl.configure(text="대기열 완료!", text_color="#06D6A0")
+            self.cur_prog_bar.set(1.0)
+            self.cur_stats_lbl.configure(text="")
+            self.total_prog_bar.set(1.0)
+            self.overall_status_lbl.configure(text="전체 진행 상황: 일괄 다운로드 완료!")
         
         self.refresh_file_list()
         
