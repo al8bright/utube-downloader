@@ -2,6 +2,7 @@ import os
 import sys
 import threading
 import urllib.request
+import webbrowser
 from io import BytesIO
 import customtkinter as ctk
 from PIL import Image, ImageTk
@@ -81,6 +82,31 @@ class ScrollableSearchFrame(ctk.CTkScrollableFrame):
         self.search_widgets = []
         self.search_results_data = [] # 검색결과 저장용
         
+    def load_thumbnail_async(self, thumb_url, label_widget):
+        try:
+            if not thumb_url:
+                raise Exception("No thumbnail URL")
+            req = urllib.request.Request(
+                thumb_url, 
+                headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            )
+            with urllib.request.urlopen(req, timeout=5) as response:
+                data = response.read()
+            img = Image.open(BytesIO(data))
+            img = img.resize((80, 45), Image.Resampling.LANCZOS)
+            ctk_img = ctk.CTkImage(light_image=img, dark_image=img, size=(80, 45))
+            
+            def set_img():
+                if label_widget.winfo_exists():
+                    label_widget.configure(text="", image=ctk_img)
+                    label_widget.image = ctk_img
+            label_widget.after(0, set_img)
+        except Exception:
+            def set_fail():
+                if label_widget.winfo_exists():
+                    label_widget.configure(text="No Image", text_color="#666666")
+            label_widget.after(0, set_fail)
+
     def populate_results(self, results):
         for widget in self.search_widgets:
             widget.destroy()
@@ -102,9 +128,21 @@ class ScrollableSearchFrame(ctk.CTkScrollableFrame):
             chk = ctk.CTkCheckBox(frame, text="", variable=check_var, width=20)
             chk.pack(side="left", padx=(10, 5), pady=10)
             
+            # 썸네일 이미지 라벨 (플레이스홀더 상태로 선설정)
+            thumbnail_lbl = ctk.CTkLabel(
+                frame, 
+                text="로딩 중...", 
+                width=80, 
+                height=45, 
+                fg_color="#141421", 
+                font=("Malgun Gothic", 10), 
+                text_color="#888888"
+            )
+            thumbnail_lbl.pack(side="left", padx=5, pady=5)
+            
             # 제목 및 정보 텍스트 결합 프레임
             info_frame = ctk.CTkFrame(frame, fg_color="transparent")
-            info_frame.pack(side="left", fill="x", expand=True, padx=5, pady=5)
+            info_frame.pack(side="left", fill="x", expand=True, padx=10, pady=5)
             
             title_lbl = ctk.CTkLabel(
                 info_frame, 
@@ -124,6 +162,28 @@ class ScrollableSearchFrame(ctk.CTkScrollableFrame):
                 text_color="#888888"
             )
             sub_lbl.pack(fill="x", anchor="w")
+            
+            # 바로 재생 버튼
+            play_btn = ctk.CTkButton(
+                frame,
+                text="▶ 재생",
+                width=60,
+                height=26,
+                fg_color="#3A86FF",
+                hover_color="#2563EB",
+                font=("Malgun Gothic", 11, "bold"),
+                command=lambda url=item['url']: webbrowser.open(url)
+            )
+            play_btn.pack(side="right", padx=(5, 10), pady=10)
+            
+            # 비동기 썸네일 다운로드 시작
+            thumb_url = item.get('thumbnail')
+            thread = threading.Thread(
+                target=self.load_thumbnail_async, 
+                args=(thumb_url, thumbnail_lbl), 
+                daemon=True
+            )
+            thread.start()
             
             # 검색결과 데이터 수집
             self.search_results_data.append({
@@ -638,7 +698,8 @@ class YoutubeDownloaderApp(ctk.CTk):
                     'title': entry.get('title', 'Unknown Title'),
                     'url': entry.get('url', f"https://www.youtube.com/watch?v={entry.get('id')}"),
                     'duration': duration_str,
-                    'uploader': entry.get('uploader', 'Unknown')
+                    'uploader': entry.get('uploader', 'Unknown'),
+                    'thumbnail': entry.get('thumbnail') or (f"https://img.youtube.com/vi/{entry.get('id')}/hqdefault.jpg" if entry.get('id') else None)
                 })
                 
             self.after(0, self.on_search_success, results)
