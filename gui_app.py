@@ -17,13 +17,13 @@ class ScrollableFileFrame(ctk.CTkScrollableFrame):
         super().__init__(master, **kwargs)
         self.file_items = []
         
-    def populate_files(self, files, play_callback, delete_callback):
+    def populate_files(self, files, play_callback, delete_callback, empty_text="다운로드된 파일이 없습니다."):
         for item in self.file_items:
             item.destroy()
         self.file_items.clear()
         
         if not files:
-            label = ctk.CTkLabel(self, text="다운로드된 오디오 파일이 없습니다.", font=("Malgun Gothic", 13), text_color="#888888")
+            label = ctk.CTkLabel(self, text=empty_text, font=("Malgun Gothic", 13), text_color="#888888")
             label.pack(pady=20)
             self.file_items.append(label)
             return
@@ -33,7 +33,14 @@ class ScrollableFileFrame(ctk.CTkScrollableFrame):
             frame.pack(fill="x", pady=4, padx=5)
             
             ext = os.path.splitext(f)[1].upper()
-            ext_color = "#3A86FF" if ext == ".MP3" else "#06D6A0"
+            if ext == ".MP3":
+                ext_color = "#3A86FF"
+            elif ext == ".FLAC":
+                ext_color = "#06D6A0"
+            elif ext == ".MP4":
+                ext_color = "#F77F00"
+            else:
+                ext_color = "#888888"
             ext_label = ctk.CTkLabel(frame, text=ext.replace(".", ""), font=("Malgun Gothic", 11, "bold"), text_color=ext_color, width=45)
             ext_label.pack(side="left", padx=(10, 5), pady=8)
             
@@ -241,6 +248,7 @@ class YoutubeDownloaderApp(ctk.CTk):
 
         
         # 상태 변수들
+        self.save_dir_var = ctk.StringVar(value=os.path.normpath(os.getcwd()))
         self.queue_items = []  # 대기열 목록: [{title, url, duration, uploader, check_var, status}]
         self.search_results = []
         
@@ -277,7 +285,8 @@ class YoutubeDownloaderApp(ctk.CTk):
         
         self.tab_search = self.tabview.add("검색 및 추가")
         self.tab_queue = self.tabview.add("다운로드 대기열")
-        self.tab_files = self.tabview.add("완료된 음악")
+        self.tab_audio = self.tabview.add("음성 다운로드 목록")
+        self.tab_video = self.tabview.add("영상 다운로드 목록")
         
         # ----------------------------------------------------
         # 탭 1: 검색 및 추가 구현
@@ -373,6 +382,32 @@ class YoutubeDownloaderApp(ctk.CTk):
         )
         direct_add_btn.pack(side="right", padx=(5, 0))
         
+        # 저장 폴더 지정 영역 추가
+        save_dir_row = ctk.CTkFrame(queue_ctrl_frame, fg_color="transparent")
+        save_dir_row.pack(fill="x", padx=15, pady=(5, 5))
+        
+        ctk.CTkLabel(save_dir_row, text="저장 폴더 지정:", font=("Malgun Gothic", 12, "bold"), text_color="#A0A0B0").pack(side="left", padx=(0, 5))
+        
+        self.save_dir_entry = ctk.CTkEntry(
+            save_dir_row, 
+            textvariable=self.save_dir_var,
+            height=30,
+            font=("Malgun Gothic", 11)
+        )
+        self.save_dir_entry.pack(side="left", fill="x", expand=True, padx=5)
+        
+        save_dir_btn = ctk.CTkButton(
+            save_dir_row, 
+            text="폴더 변경", 
+            width=90, 
+            height=30,
+            fg_color="#4F5D75",
+            hover_color="#3D4A5E",
+            font=("Malgun Gothic", 11, "bold"),
+            command=self.browse_save_dir
+        )
+        save_dir_btn.pack(side="right", padx=(5, 0))
+        
         # 설정 1: 포맷 선택 및 음질
         settings_row = ctk.CTkFrame(queue_ctrl_frame, fg_color="transparent")
         settings_row.pack(fill="x", padx=15, pady=(5, 5))
@@ -382,7 +417,7 @@ class YoutubeDownloaderApp(ctk.CTk):
         self.format_var = ctk.StringVar(value="MP3")
         self.format_select = ctk.CTkSegmentedButton(
             settings_row, 
-            values=["MP3", "FLAC"], 
+            values=["MP3", "FLAC", "MP4"], 
             variable=self.format_var,
             command=self.on_format_changed,
             font=("Malgun Gothic", 11, "bold")
@@ -465,19 +500,19 @@ class YoutubeDownloaderApp(ctk.CTk):
         self.download_all_btn.pack(side="right", fill="x", expand=True, padx=(5, 0))
         
         # ----------------------------------------------------
-        # 탭 3: 완료된 음악 구현
+        # 탭 3: 음성 다운로드 목록 구현
         # ----------------------------------------------------
-        self.tab_files.grid_columnconfigure(0, weight=1)
-        self.tab_files.grid_rowconfigure(1, weight=1)
+        self.tab_audio.grid_columnconfigure(0, weight=1)
+        self.tab_audio.grid_rowconfigure(1, weight=1)
         
-        list_header = ctk.CTkFrame(self.tab_files, fg_color="transparent")
-        list_header.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
+        audio_header = ctk.CTkFrame(self.tab_audio, fg_color="transparent")
+        audio_header.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
         
-        list_title = ctk.CTkLabel(list_header, text="다운로드 완료 파일 목록 (현재 폴더)", font=("Malgun Gothic", 13, "bold"), text_color="#A0A0B0")
-        list_title.pack(side="left", padx=5, pady=5)
+        audio_title = ctk.CTkLabel(audio_header, text="음성 다운로드 완료 목록", font=("Malgun Gothic", 13, "bold"), text_color="#A0A0B0")
+        audio_title.pack(side="left", padx=5, pady=5)
         
-        open_folder_btn = ctk.CTkButton(
-            list_header, 
+        open_audio_folder_btn = ctk.CTkButton(
+            audio_header, 
             text="폴더 열기", 
             width=80, 
             height=26,
@@ -486,22 +521,61 @@ class YoutubeDownloaderApp(ctk.CTk):
             font=("Malgun Gothic", 11, "bold"),
             command=self.open_download_folder
         )
-        open_folder_btn.pack(side="right", padx=5)
+        open_audio_folder_btn.pack(side="right", padx=5)
         
-        delete_all_files_btn = ctk.CTkButton(
-            list_header, 
-            text="완료 목록 전체 삭제", 
-            width=120, 
+        delete_all_audio_btn = ctk.CTkButton(
+            audio_header, 
+            text="목록 전체 삭제", 
+            width=100, 
             height=26,
             fg_color="#FF007F",
             hover_color="#CC0066",
             font=("Malgun Gothic", 11, "bold"),
-            command=self.delete_all_completed_files
+            command=self.delete_all_completed_audio
         )
-        delete_all_files_btn.pack(side="right", padx=5)
+        delete_all_audio_btn.pack(side="right", padx=5)
         
-        self.scroll_frame = ScrollableFileFrame(self.tab_files, fg_color="transparent")
-        self.scroll_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
+        self.scroll_audio_frame = ScrollableFileFrame(self.tab_audio, fg_color="transparent")
+        self.scroll_audio_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
+        
+        # ----------------------------------------------------
+        # 탭 4: 영상 다운로드 목록 구현
+        # ----------------------------------------------------
+        self.tab_video.grid_columnconfigure(0, weight=1)
+        self.tab_video.grid_rowconfigure(1, weight=1)
+        
+        video_header = ctk.CTkFrame(self.tab_video, fg_color="transparent")
+        video_header.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
+        
+        video_title = ctk.CTkLabel(video_header, text="영상 다운로드 완료 목록", font=("Malgun Gothic", 13, "bold"), text_color="#A0A0B0")
+        video_title.pack(side="left", padx=5, pady=5)
+        
+        open_video_folder_btn = ctk.CTkButton(
+            video_header, 
+            text="폴더 열기", 
+            width=80, 
+            height=26,
+            fg_color="#4F46E5",
+            hover_color="#4338CA",
+            font=("Malgun Gothic", 11, "bold"),
+            command=self.open_download_folder
+        )
+        open_video_folder_btn.pack(side="right", padx=5)
+        
+        delete_all_video_btn = ctk.CTkButton(
+            video_header, 
+            text="목록 전체 삭제", 
+            width=100, 
+            height=26,
+            fg_color="#FF007F",
+            hover_color="#CC0066",
+            font=("Malgun Gothic", 11, "bold"),
+            command=self.delete_all_completed_video
+        )
+        delete_all_video_btn.pack(side="right", padx=5)
+        
+        self.scroll_video_frame = ScrollableFileFrame(self.tab_video, fg_color="transparent")
+        self.scroll_video_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
         
     def start_search(self):
         query = self.search_entry.get().strip()
@@ -663,7 +737,7 @@ class YoutubeDownloaderApp(ctk.CTk):
         self.total_prog_bar.set(0.0)
         
     def on_format_changed(self, value):
-        if value == "FLAC":
+        if value in ("FLAC", "MP4"):
             self.quality_label.pack_forget()
             self.quality_select.pack_forget()
         else:
@@ -776,17 +850,29 @@ class YoutubeDownloaderApp(ctk.CTk):
                     self.queue_items[self.current_download_idx]['status'] = 'converting'
                     self.after(0, self.update_queue_list_ui)
                     
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'outtmpl': '%(title)s.%(ext)s',
-            'progress_hooks': [progress_hook],
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3' if format_type == 'MP3' else 'flac',
-                'preferredquality': quality if format_type == 'MP3' else '0',
-            }],
-            'quiet': True,
-        }
+        save_dir = self.save_dir_var.get().strip()
+        if not save_dir or not os.path.exists(save_dir):
+            save_dir = os.getcwd()
+
+        if format_type == 'MP4':
+            ydl_opts = {
+                'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+                'outtmpl': os.path.join(save_dir, '%(title)s.%(ext)s'),
+                'progress_hooks': [progress_hook],
+                'quiet': True,
+            }
+        else:
+            ydl_opts = {
+                'format': 'bestaudio/best',
+                'outtmpl': os.path.join(save_dir, '%(title)s.%(ext)s'),
+                'progress_hooks': [progress_hook],
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': format_type.lower(),
+                    'preferredquality': quality if format_type == 'MP3' else '0',
+                }],
+                'quiet': True,
+            }
         
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -842,52 +928,84 @@ class YoutubeDownloaderApp(ctk.CTk):
             
         # 100ms 간격 주기 호출
         self.after(100, self.update_progress_loop)
-        
+
+    def browse_save_dir(self):
+        selected_dir = filedialog.askdirectory(initialdir=self.save_dir_var.get())
+        if selected_dir:
+            self.save_dir_var.set(os.path.normpath(selected_dir))
+            self.refresh_file_list()
+
     def refresh_file_list(self):
+        save_dir = self.save_dir_var.get().strip()
+        if not save_dir or not os.path.exists(save_dir):
+            save_dir = os.getcwd()
+            
         audio_files = []
+        video_files = []
         try:
-            for f in os.listdir('.'):
-                if os.path.isfile(f) and f.lower().endswith(('.mp3', '.flac')):
-                    audio_files.append(f)
+            for f in os.listdir(save_dir):
+                full_path = os.path.join(save_dir, f)
+                if os.path.isfile(full_path):
+                    if f.lower().endswith(('.mp3', '.flac')):
+                        audio_files.append(f)
+                    elif f.lower().endswith(('.mp4', '.mkv', '.webm', '.avi')):
+                        video_files.append(f)
             audio_files.sort()
+            video_files.sort()
         except Exception as e:
             print(f"File list reload failed: {e}")
             
-        self.scroll_frame.populate_files(audio_files, self.play_file, self.delete_file)
+        self.scroll_audio_frame.populate_files(
+            audio_files, 
+            lambda fname: self.play_file(os.path.join(save_dir, fname)), 
+            lambda fname: self.delete_file(os.path.join(save_dir, fname)),
+            empty_text="다운로드된 음성 파일이 없습니다."
+        )
         
-    def play_file(self, filename):
+        self.scroll_video_frame.populate_files(
+            video_files, 
+            lambda fname: self.play_file(os.path.join(save_dir, fname)), 
+            lambda fname: self.delete_file(os.path.join(save_dir, fname)),
+            empty_text="다운로드된 영상 파일이 없습니다."
+        )
+        
+    def play_file(self, fullpath):
         try:
-            os.startfile(filename)
+            os.startfile(fullpath)
         except Exception as e:
             self.show_error(f"재생 실패:\n{e}")
             
-    def delete_file(self, filename):
+    def delete_file(self, fullpath):
+        filename = os.path.basename(fullpath)
         dialog = ctk.CTkInputDialog(text=f"정말로 '{filename}' 파일을 삭제하시겠습니까?\n삭제하려면 'yes'를 입력해 주세요.", title="파일 삭제 확인")
         response = dialog.get_input()
         if response and response.strip().lower() == 'yes':
             try:
-                os.remove(filename)
+                os.remove(fullpath)
                 self.refresh_file_list()
             except Exception as e:
                 self.show_error(f"파일 삭제 오류:\n{e}")
                 
-    def delete_all_completed_files(self):
+    def delete_all_completed_audio(self):
+        save_dir = self.save_dir_var.get().strip()
+        if not save_dir or not os.path.exists(save_dir):
+            save_dir = os.getcwd()
         audio_files = []
         try:
-            for f in os.listdir('.'):
-                if os.path.isfile(f) and f.lower().endswith(('.mp3', '.flac')):
+            for f in os.listdir(save_dir):
+                if os.path.isfile(os.path.join(save_dir, f)) and f.lower().endswith(('.mp3', '.flac')):
                     audio_files.append(f)
         except Exception as e:
             self.show_error(f"파일 목록 조회 실패:\n{e}")
             return
             
         if not audio_files:
-            self.show_error("삭제할 완료 오디오 파일이 없습니다.")
+            self.show_error("삭제할 완료 음성 파일이 없습니다.")
             return
             
         dialog = ctk.CTkInputDialog(
-            text=f"정말로 현재 폴더의 모든 완료 음원 파일({len(audio_files)}개)을 영구 삭제하시겠습니까?\n삭제하려면 'yes'를 입력해 주세요.", 
-            title="완료 파일 전체 삭제 확인"
+            text=f"정말로 지정된 폴더의 모든 완료 음성 파일({len(audio_files)}개)을 영구 삭제하시겠습니까?\n삭제하려면 'yes'를 입력해 주세요.", 
+            title="완료 음성 파일 전체 삭제 확인"
         )
         response = dialog.get_input()
         if response and response.strip().lower() == 'yes':
@@ -895,7 +1013,45 @@ class YoutubeDownloaderApp(ctk.CTk):
             errors = []
             for f in audio_files:
                 try:
-                    os.remove(f)
+                    os.remove(os.path.join(save_dir, f))
+                    deleted_count += 1
+                except Exception as e:
+                    errors.append(f"{f}: {e}")
+            self.refresh_file_list()
+            if errors:
+                err_msg = "\n".join(errors[:5])
+                if len(errors) > 5:
+                    err_msg += f"\n외 {len(errors)-5}개 파일"
+                self.show_error(f"{deleted_count}개 파일 삭제 완료 (일부 실패):\n{err_msg}")
+
+    def delete_all_completed_video(self):
+        save_dir = self.save_dir_var.get().strip()
+        if not save_dir or not os.path.exists(save_dir):
+            save_dir = os.getcwd()
+        video_files = []
+        try:
+            for f in os.listdir(save_dir):
+                if os.path.isfile(os.path.join(save_dir, f)) and f.lower().endswith(('.mp4', '.mkv', '.webm', '.avi')):
+                    video_files.append(f)
+        except Exception as e:
+            self.show_error(f"파일 목록 조회 실패:\n{e}")
+            return
+            
+        if not video_files:
+            self.show_error("삭제할 완료 영상 파일이 없습니다.")
+            return
+            
+        dialog = ctk.CTkInputDialog(
+            text=f"정말로 지정된 폴더의 모든 완료 영상 파일({len(video_files)}개)을 영구 삭제하시겠습니까?\n삭제하려면 'yes'를 입력해 주세요.", 
+            title="완료 영상 파일 전체 삭제 확인"
+        )
+        response = dialog.get_input()
+        if response and response.strip().lower() == 'yes':
+            deleted_count = 0
+            errors = []
+            for f in video_files:
+                try:
+                    os.remove(os.path.join(save_dir, f))
                     deleted_count += 1
                 except Exception as e:
                     errors.append(f"{f}: {e}")
@@ -907,8 +1063,11 @@ class YoutubeDownloaderApp(ctk.CTk):
                 self.show_error(f"{deleted_count}개 파일 삭제 완료 (일부 실패):\n{err_msg}")
                 
     def open_download_folder(self):
+        save_dir = self.save_dir_var.get().strip()
+        if not save_dir or not os.path.exists(save_dir):
+            save_dir = os.getcwd()
         try:
-            os.startfile(os.getcwd())
+            os.startfile(save_dir)
         except Exception as e:
             self.show_error(f"폴더 열기 실패:\n{e}")
             
