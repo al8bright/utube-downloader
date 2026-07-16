@@ -232,6 +232,14 @@ class YoutubeDownloaderApp(ctk.CTk):
         self.geometry("800x700")
         self.minsize(750, 650)
         
+        # 윈도우 타이틀바 아이콘 지정
+        try:
+            if os.path.exists("youtube_icon.ico"):
+                self.iconbitmap("youtube_icon.ico")
+        except Exception:
+            pass
+
+        
         # 상태 변수들
         self.queue_items = []  # 대기열 목록: [{title, url, duration, uploader, check_var, status}]
         self.search_results = []

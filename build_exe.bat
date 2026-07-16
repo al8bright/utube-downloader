@@ -17,7 +17,8 @@ echo [2/2] Building single executable with PyInstaller...
 echo       This may take 1-2 minutes. Please wait...
 echo.
 
-pyinstaller --noconfirm --onefile --windowed --name="YoutubeDownloader" --add-data ".venv\Lib\site-packages\customtkinter;customtkinter" gui_app.py
+pyinstaller --noconfirm --onefile --windowed --name="YoutubeDownloader" --icon="youtube_icon.ico" --add-data ".venv\Lib\site-packages\customtkinter;customtkinter" gui_app.py
+
 
 if errorlevel 1 (
     echo.
