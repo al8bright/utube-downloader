@@ -4,6 +4,7 @@ import threading
 import urllib.request
 import webbrowser
 from io import BytesIO
+from concurrent.futures import ThreadPoolExecutor
 import customtkinter as ctk
 from PIL import Image, ImageTk
 import yt_dlp
@@ -81,6 +82,7 @@ class ScrollableSearchFrame(ctk.CTkScrollableFrame):
         super().__init__(master, **kwargs)
         self.search_widgets = []
         self.search_results_data = [] # 검색결과 저장용
+        self.thumb_executor = ThreadPoolExecutor(max_workers=8) # 썸네일 동시 다운로드 풀 제한 (100개 검색 대비 부하 관리)
         
     def load_thumbnail_async(self, thumb_url, label_widget):
         try:
@@ -177,14 +179,13 @@ class ScrollableSearchFrame(ctk.CTkScrollableFrame):
             )
             sub_lbl.pack(fill="x", anchor="w")
             
-            # 비동기 썸네일 다운로드 시작
+            # 비동기 썸네일 다운로드 시작 (ThreadPoolExecutor로 부하 분산)
             thumb_url = item.get('thumbnail')
-            thread = threading.Thread(
-                target=self.load_thumbnail_async, 
-                args=(thumb_url, thumbnail_lbl), 
-                daemon=True
+            self.thumb_executor.submit(
+                self.load_thumbnail_async, 
+                thumb_url, 
+                thumbnail_lbl
             )
-            thread.start()
             
             # 검색결과 데이터 수집
             self.search_results_data.append({
@@ -683,9 +684,9 @@ class YoutubeDownloaderApp(ctk.CTk):
                 'extract_flat': True,
                 'quiet': True,
             }
-            # 검색어 10개 추출
+            # 검색어 100개 추출 (flat extraction으로 빠른 메타데이터 리스트 수집)
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(f"ytsearch10:{query}", download=False)
+                info = ydl.extract_info(f"ytsearch100:{query}", download=False)
                 entries = info.get('entries', [])
                 
             results = []
