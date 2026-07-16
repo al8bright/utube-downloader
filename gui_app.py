@@ -438,6 +438,18 @@ class YoutubeDownloaderApp(ctk.CTk):
         )
         self.quality_select.pack(side="left", padx=5)
         
+        self.clear_completed_btn = ctk.CTkButton(
+            settings_row, 
+            text="완료 항목 제거", 
+            width=100, 
+            height=28,
+            fg_color="#343A40",
+            hover_color="#495057",
+            font=("Malgun Gothic", 11, "bold"),
+            command=self.clear_completed_queue
+        )
+        self.clear_completed_btn.pack(side="right", padx=(5, 5))
+
         clear_queue_btn = ctk.CTkButton(
             settings_row, 
             text="대기열 비우기", 
@@ -749,6 +761,26 @@ class YoutubeDownloaderApp(ctk.CTk):
         self.queue_items.clear()
         self.queue_scroll.populate_queue(self.queue_items, self.delete_queue_item)
         self.total_prog_bar.set(0.0)
+
+    def clear_completed_queue(self):
+        if self.batch_running:
+            self.show_error("다운로드 중에는 대기열을 수정할 수 없습니다.")
+            return
+            
+        new_items = []
+        removed_count = 0
+        for item in self.queue_items:
+            if item.get('status') == 'finished':
+                removed_count += 1
+            else:
+                new_items.append(item)
+                
+        if removed_count == 0:
+            self.show_error("대기열에 완료(finished) 상태인 항목이 없습니다.")
+            return
+            
+        self.queue_items = new_items
+        self.update_queue_list_ui()
         
     def on_format_changed(self, value):
         if value in ("FLAC", "MP4"):
