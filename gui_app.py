@@ -140,30 +140,7 @@ class ScrollableSearchFrame(ctk.CTkScrollableFrame):
             )
             thumbnail_lbl.pack(side="left", padx=5, pady=5)
             
-            # 제목 및 정보 텍스트 결합 프레임
-            info_frame = ctk.CTkFrame(frame, fg_color="transparent")
-            info_frame.pack(side="left", fill="x", expand=True, padx=10, pady=5)
-            
-            title_lbl = ctk.CTkLabel(
-                info_frame, 
-                text=item['title'], 
-                anchor="w", 
-                font=("Malgun Gothic", 12, "bold"), 
-                text_color="#E0E0E6",
-                justify="left"
-            )
-            title_lbl.pack(fill="x", anchor="w")
-            
-            sub_lbl = ctk.CTkLabel(
-                info_frame, 
-                text=f"채널: {item['uploader']} | 길이: {item['duration']}", 
-                anchor="w", 
-                font=("Malgun Gothic", 11), 
-                text_color="#888888"
-            )
-            sub_lbl.pack(fill="x", anchor="w")
-            
-            # 바로 재생 버튼
+            # 바로 재생 버튼 (우측 고정 점유를 위해 info_frame보다 먼저 pack)
             play_btn = ctk.CTkButton(
                 frame,
                 text="▶ 재생",
@@ -175,6 +152,30 @@ class ScrollableSearchFrame(ctk.CTkScrollableFrame):
                 command=lambda url=item['url']: webbrowser.open(url)
             )
             play_btn.pack(side="right", padx=(5, 10), pady=10)
+            
+            # 제목 및 정보 텍스트 결합 프레임 (남은 공간을 유동적으로 사용)
+            info_frame = ctk.CTkFrame(frame, fg_color="transparent")
+            info_frame.pack(side="left", fill="x", expand=True, padx=10, pady=5)
+            
+            title_lbl = ctk.CTkLabel(
+                info_frame, 
+                text=item['title'], 
+                anchor="w", 
+                font=("Malgun Gothic", 12, "bold"), 
+                text_color="#E0E0E6",
+                justify="left",
+                wraplength=420  # 제목이 너무 길 경우 겹치지 않고 줄바꿈되도록 wraplength 지정
+            )
+            title_lbl.pack(fill="x", anchor="w")
+            
+            sub_lbl = ctk.CTkLabel(
+                info_frame, 
+                text=f"채널: {item['uploader']} | 길이: {item['duration']}", 
+                anchor="w", 
+                font=("Malgun Gothic", 11), 
+                text_color="#888888"
+            )
+            sub_lbl.pack(fill="x", anchor="w")
             
             # 비동기 썸네일 다운로드 시작
             thumb_url = item.get('thumbnail')
