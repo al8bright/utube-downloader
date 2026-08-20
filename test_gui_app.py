@@ -570,3 +570,170 @@ class TestProgressiveRender:
         monkeypatch.setattr(gui_app.ctk, "CTkLabel", FakeLabel)
         gui_app.ScrollableSearchFrame.populate_results(frame, [])
         assert frame.after_queue == [], "이전 렌더링을 취소하지 않으면 옛 결과가 새 화면에 섞인다"
+
+
+# --------------------------------------------------------------------------
+# 회귀: 차단된 재생목록이 재시도 경로로 되살아나면 안 된다
+# --------------------------------------------------------------------------
+class FakeVar:
+    def __init__(self, value=True):
+        self.value = value
+
+    def get(self):
+        return self.value
+
+    def set(self, v):
+        self.value = v
+
+
+class FakeStartApp:
+    def __init__(self, items):
+        self.queue_items = items
+        self.batch_running = False
+        self.stop_requested = False
+        self.errors = []
+        self.started = None
+        self.locked = None
+        self.save_dir_var = FakeVar(os.getcwd())
+        self.format_var = FakeVar("MP3")
+        self.quality_var = FakeVar("320kbps")
+
+    def show_error(self, msg):
+        self.errors.append(msg)
+
+    def set_controls_locked(self, locked):
+        self.locked = locked
+
+    def batch_download_loop(self, indices, settings):
+        pass
+
+
+def _start(app, monkeypatch):
+    """start_selected_download 를 실제 스레드 없이 돌린다."""
+    captured = {}
+
+    class FakeThread:
+        def __init__(self, target=None, args=(), daemon=None):
+            captured["args"] = args
+
+        def start(self):
+            captured["started"] = True
+
+    monkeypatch.setattr(gui_app.threading, "Thread", FakeThread)
+    gui_app.YoutubeDownloaderApp.start_selected_download(app)
+    return captured
+
+
+class TestBlockedPlaylistNotRetried:
+    def _blocked_item(self):
+        return {"title": "재생목록", "url": "https://www.youtube.com/playlist?list=PLx",
+                "check_var": FakeVar(True), "status": "failed", "blocked": True}
+
+    def _normal_item(self):
+        return {"title": "곡", "url": "https://www.youtube.com/watch?v=n61ULEU7CO0",
+                "check_var": FakeVar(True), "status": "waiting"}
+
+    def test_차단된_재생목록은_다운로드_대상에서_빠진다(self, monkeypatch):
+        app = FakeStartApp([self._blocked_item(), self._normal_item()])
+        cap = _start(app, monkeypatch)
+        assert cap.get("started"), "정상 항목이 있으니 배치는 시작돼야 한다"
+        assert cap["args"][0] == [1], "차단된 재생목록이 대상에 들어가면 영상 수백 개를 받는다"
+
+    def test_차단_항목만_있으면_배치가_시작되지_않는다(self, monkeypatch):
+        app = FakeStartApp([self._blocked_item()])
+        cap = _start(app, monkeypatch)
+        assert not cap.get("started")
+        assert app.errors, "받을 것이 없다는 안내가 있어야 한다"
+
+    def test_전체_선택은_차단_항목을_체크하지_않는다(self):
+        blocked = self._blocked_item()
+        blocked["check_var"].set(False)
+        normal = self._normal_item()
+        normal["check_var"].set(False)
+        app = FakeStartApp([blocked, normal])
+        app.start_selected_download = lambda: None
+        gui_app.YoutubeDownloaderApp.start_all_download(app)
+        assert blocked["check_var"].get() is False, "차단 항목을 다시 체크하면 가드가 무력해진다"
+        assert normal["check_var"].get() is True
+
+    def test_일반_실패_항목은_재시도할_수_있다(self, monkeypatch):
+        failed = self._normal_item()
+        failed["status"] = "failed"
+        app = FakeStartApp([failed])
+        cap = _start(app, monkeypatch)
+        assert cap["args"][0] == [0], "일반 실패는 재시도 가능해야 한다"
+
+
+# --------------------------------------------------------------------------
+# 회귀: 저장 폴더가 유효하지 않으면 다운로드를 시작하면 안 된다
+# --------------------------------------------------------------------------
+class TestInvalidSaveDirStops:
+    def test_없는_폴더면_배치를_시작하지_않는다(self, monkeypatch, tmp_path):
+        item = {"title": "곡", "url": "https://youtu.be/n61ULEU7CO0",
+                "check_var": FakeVar(True), "status": "waiting"}
+        app = FakeStartApp([item])
+        app.save_dir_var = FakeVar(str(tmp_path / "없는폴더"))
+        cap = _start(app, monkeypatch)
+        assert not cap.get("started"), "안내만 하고 cwd 로 받아버리면 파일이 엉뚱한 곳에 쌓인다"
+        assert app.errors
+        assert app.locked is not True, "시작하지 않았으면 컨트롤을 잠그면 안 된다"
+
+    def test_유효한_폴더면_정상_시작한다(self, monkeypatch, tmp_path):
+        item = {"title": "곡", "url": "https://youtu.be/n61ULEU7CO0",
+                "check_var": FakeVar(True), "status": "waiting"}
+        app = FakeStartApp([item])
+        app.save_dir_var = FakeVar(str(tmp_path))
+        cap = _start(app, monkeypatch)
+        assert cap.get("started")
+        assert cap["args"][1]["save_dir"] == str(tmp_path)
+
+
+# --------------------------------------------------------------------------
+# 회귀: 대문자 도메인도 같은 영상으로 잡아야 한다
+# --------------------------------------------------------------------------
+class TestVideoIdCaseInsensitive:
+    def test_대문자_도메인도_ID를_뽑는다(self):
+        assert gui_app.extract_video_id("https://www.YouTube.com/watch?v=n61ULEU7CO0") == "n61ULEU7CO0"
+        assert gui_app.extract_video_id("https://YOUTU.BE/n61ULEU7CO0") == "n61ULEU7CO0"
+
+    def test_대소문자가_달라도_같은_영상으로_본다(self):
+        assert gui_app.is_same_video(
+            "https://www.youtube.com/watch?v=n61ULEU7CO0",
+            "https://www.YouTube.com/watch?v=n61ULEU7CO0",
+        ) is True
+
+    def test_구형_v_경로도_인식한다(self):
+        assert gui_app.extract_video_id("https://www.youtube.com/v/n61ULEU7CO0") == "n61ULEU7CO0"
+
+    def test_영상_ID_자체의_대소문자는_보존한다(self):
+        assert gui_app.extract_video_id("https://youtu.be/AbCdEfGhIjK") == "AbCdEfGhIjK"
+
+
+class TestAlreadyQueuedFeedback:
+    def _app(self, queue_urls, selected_url):
+        app = FakeStartApp([{"title": "q", "url": u, "check_var": FakeVar(True),
+                             "status": "waiting"} for u in queue_urls])
+        app.search_scroll = types.SimpleNamespace(search_results_data=[{
+            "title": "곡", "url": selected_url, "duration": "03:00",
+            "uploader": "ch", "check_var": FakeVar(True)}])
+        app.queue_scroll = types.SimpleNamespace(populate_queue=lambda *a: None)
+        app.tabview = types.SimpleNamespace(set=lambda *a: None)
+        app.update_queue_list_ui = lambda: None
+        app.pending_added_during_batch = 0
+        return app
+
+    def test_전부_이미_있으면_안내한다(self):
+        url = "https://www.youtube.com/watch?v=n61ULEU7CO0"
+        app = self._app([url], url)
+        gui_app.YoutubeDownloaderApp.add_selected_to_queue(app)
+        assert len(app.queue_items) == 1
+        assert app.errors, "조용히 넘어가면 사용자는 추가된 줄 안다"
+        assert "이미 대기열" in app.errors[0]
+
+    def test_새로_추가되면_안내하지_않는다(self, monkeypatch):
+        monkeypatch.setattr(gui_app.ctk, "BooleanVar", FakeVar)
+        app = self._app(["https://youtu.be/aqz-KE-bpKQ"],
+                        "https://www.youtube.com/watch?v=n61ULEU7CO0")
+        gui_app.YoutubeDownloaderApp.add_selected_to_queue(app)
+        assert len(app.queue_items) == 2
+        assert app.errors == []
