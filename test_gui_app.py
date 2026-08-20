@@ -877,7 +877,10 @@ class TestStopButtonAppearance:
         gui_app.YoutubeDownloaderApp.request_stop_download(App())
         states = [c for c in calls if c.get("state") == "disabled"]
         assert states, "중단 버튼은 비활성화돼야 한다"
-        assert any("fg_color" in c for c in calls), "빨간 배경 그대로면 눌리는 버튼처럼 보인다"
+        # 외곽선 버튼이므로 테두리/글자색으로 비활성 상태를 드러낸다.
+        # 어떤 형태로든 시각 변화가 없으면 '눌리는데 반응 없는 버튼' 이 된다.
+        visual = {"fg_color", "border_color", "text_color"}
+        assert any(visual & set(c) for c in calls), "색 변화가 없으면 눌리는 버튼처럼 보인다"
 
 
 # ==========================================================================

@@ -435,33 +435,59 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # ---------------------------------------------------------------------------
-# 디자인 토큰 (design.md 기반)
-# 색상과 서체를 한 곳에서만 정의한다. 위젯 코드에는 리터럴을 두지 않는다.
+# 디자인 토큰 — design.md (Lamborghini.com 스타일 레퍼런스)
+# "쇼룸 블랙 위에 스포트라이트를 받는 노란 차 한 대"
+#
+# 규칙 세 가지를 지킨다.
+#   1) 노랑(Giallo Vivo)은 화면당 단 하나. 그 화면의 주 동작에만 쓴다.
+#   2) 모서리 반경은 전부 0. 하드 엣지가 이 브랜드의 뼈대다.
+#   3) 구분은 그림자나 테두리가 아니라 면 색 대비와 여백으로 한다.
 # ---------------------------------------------------------------------------
-C_ACCENT = "#3A86FF"          # 주 강조 (기본 동작 버튼, 활성 탭, 진행 바)
-C_ACCENT_HOVER = "#2563EB"
-C_SUCCESS = "#06D6A0"         # 완료 상태 / 대기열 추가 버튼
-C_SUCCESS_HOVER = "#05B386"
-C_DANGER = "#FF007F"          # 실패 / 중단 / 삭제
-C_DANGER_HOVER = "#CC0066"
-C_WARNING = "#F77F00"         # 변환 중
-C_INFO = "#4F46E5"            # 보조 동작 버튼
-C_INFO_HOVER = "#4338CA"
 
-C_SURFACE = "#1E1E2E"         # 카드/행 배경
-C_SURFACE_DEEP = "#141421"    # 더 어두운 면
-C_SURFACE_MUTED = "#343A40"   # 중립 버튼 배경
-C_SURFACE_MUTED_HOVER = "#495057"
-C_DISABLED = "#4F5D75"        # 비활성 버튼
+# 브랜드 유일색
+C_GIALLO = "#ffc000"           # Giallo Vivo — 주 동작 버튼, 진행 바
+C_GIALLO_SHADE = "#917300"     # Giallo Ombra — 호버, 목록 마커
 
-C_TEXT = "#E0E0E6"            # 본문 텍스트
-C_TEXT_MUTED = "#A0A0B0"      # 보조 텍스트
-C_TEXT_DIM = "#888888"        # 흐린 안내 텍스트
-C_TEXT_FAINT = "#666666"      # 가장 흐린 텍스트
-C_HOVER_NEUTRAL = "#3D4A5E"
+# 표면 (밝기 대비만으로 층을 만든다)
+C_BG = "#202020"               # Carbony Black — 기본 무대
+C_SURFACE = "#181818"          # Carbon Deep — 카드, 행, 보조 버튼
+C_SURFACE_DEEP = "#000000"     # Pure Black — 노랑 위 텍스트, 가장 깊은 면
+C_PEARL = "#ffffff"            # Pearl White
 
+# 중립 램프
+C_GRAPHITE = "#494949"         # 구분, 비활성, 호버
+C_STEEL = "#7d7d7d"            # 보조 텍스트
+C_ASH = "#969696"              # 흐린 텍스트
+
+# ---- 역할 별칭 (위젯 코드는 이 이름만 쓴다) ----
+C_ACCENT = C_GIALLO
+C_ACCENT_HOVER = C_GIALLO_SHADE
+C_SUCCESS = C_PEARL            # 완료 상태 = 색이 아니라 밝기로
+C_SUCCESS_HOVER = C_ASH
+C_DANGER = C_GIALLO_SHADE      # 실패 마커 (브랜드 팔레트 안에서)
+C_DANGER_HOVER = C_GIALLO_SHADE
+C_WARNING = C_STEEL            # 진행 중 = 차분한 중립
+C_INFO = C_SURFACE             # 보조 버튼 = 면 대비로만
+C_INFO_HOVER = C_GRAPHITE
+
+C_SURFACE_MUTED = C_SURFACE
+C_SURFACE_MUTED_HOVER = C_GRAPHITE
+C_DISABLED = C_GRAPHITE
+C_HOVER_NEUTRAL = C_GRAPHITE
+
+C_TEXT = C_PEARL
+C_TEXT_MUTED = C_ASH
+C_TEXT_DIM = C_STEEL
+C_TEXT_FAINT = C_GRAPHITE
+
+# 서체
+# LamboType 은 배포 불가라 Windows 기본 탑재 Bahnschrift(DIN 계열)로 대체한다.
+# 한글은 Bahnschrift 에 글리프가 없어 시스템 폰트로 자동 폴백되므로,
+# 한글이 들어가는 본문에는 맑은 고딕을 그대로 쓴다.
 FONT_FAMILY = "Malgun Gothic"
-FONT_TITLE = (FONT_FAMILY, 22, "bold")
+FONT_DISPLAY_FAMILY = "Bahnschrift SemiBold Condensed"
+
+FONT_TITLE = (FONT_DISPLAY_FAMILY, 34)
 FONT_HEADING = (FONT_FAMILY, 13, "bold")
 FONT_BODY_BOLD = (FONT_FAMILY, 12, "bold")
 FONT_BODY = (FONT_FAMILY, 12)
@@ -470,8 +496,24 @@ FONT_LABEL = (FONT_FAMILY, 11)
 FONT_ITEM = (FONT_FAMILY, 13)
 FONT_CAPTION = (FONT_FAMILY, 10)
 
-RADIUS_CARD = 6
-RADIUS_BUTTON = 6
+# 하드 엣지 — 반경 0 은 이 디자인의 비타협 항목이다
+RADIUS_CARD = 0
+RADIUS_BUTTON = 0
+
+# 8px 그리드
+PAD_S = 8
+PAD_M = 16
+PAD_L = 24
+
+
+def tracked(text):
+    """Latin 대문자에 자간을 흉내 낸다.
+
+    LamboType 의 0.023em 트래킹은 Tk 로 표현할 수 없어,
+    영문 제목에 한해 글자 사이에 얇은 공백을 넣어 '설계된' 리듬을 낸다.
+    한글에는 쓰지 않는다 (가독성이 크게 떨어진다).
+    """
+    return " ".join((text or "").upper())
 
 UNKNOWN_TIME = "--:--"
 TEMP_DIR_NAME = ".utube_tmp"  # 변환 전 중간 파일을 격리하는 폴더
@@ -520,7 +562,7 @@ class ScrollableFileFrame(ctk.CTkScrollableFrame):
             return
             
         for f in files:
-            frame = ctk.CTkFrame(self, fg_color=C_SURFACE, corner_radius=6)
+            frame = ctk.CTkFrame(self, fg_color=C_SURFACE_DEEP, corner_radius=RADIUS_CARD)
             frame.pack(fill="x", pady=4, padx=5)
             
             ext = os.path.splitext(f)[1].upper()
@@ -540,11 +582,14 @@ class ScrollableFileFrame(ctk.CTkScrollableFrame):
             
             play_btn = ctk.CTkButton(
                 frame, 
-                text="재생", 
+                text="재생",
+            text_color=C_PEARL, 
                 width=50, 
                 height=26,
-                fg_color=C_ACCENT,
-                hover_color=C_ACCENT_HOVER,
+                fg_color="transparent",
+            border_width=1,
+            border_color=C_STEEL,
+                hover_color=C_GRAPHITE,
                 font=FONT_LABEL_BOLD,
                 command=lambda fname=f: play_callback(fname)
             )
@@ -552,11 +597,14 @@ class ScrollableFileFrame(ctk.CTkScrollableFrame):
             
             del_btn = ctk.CTkButton(
                 frame, 
-                text="삭제", 
+                text="삭제",
+            text_color=C_PEARL, 
                 width=50, 
                 height=26,
-                fg_color=C_DANGER,
-                hover_color=C_DANGER_HOVER,
+                fg_color="transparent",
+            border_width=1,
+            border_color=C_STEEL,
+                hover_color=C_GRAPHITE,
                 font=FONT_LABEL_BOLD,
                 command=lambda fname=f: delete_callback(fname)
             )
@@ -656,12 +704,16 @@ class ScrollableSearchFrame(ctk.CTkScrollableFrame):
             self.render_job = self.after(1, self._render_chunk, results, next_start, chunk_size)
 
     def _render_row(self, idx, item):
-        frame = ctk.CTkFrame(self, fg_color=C_SURFACE, corner_radius=6)
+        frame = ctk.CTkFrame(self, fg_color=C_SURFACE_DEEP, corner_radius=RADIUS_CARD)
         frame.pack(fill="x", pady=4, padx=5)
             
         # populate_results 에서 미리 만들어 둔 체크 변수를 재사용한다
         check_var = self.search_results_data[idx]['check_var']
-        chk = ctk.CTkCheckBox(frame, text="", variable=check_var, width=20)
+        chk = ctk.CTkCheckBox(
+            frame, text="", variable=check_var, width=20,
+            corner_radius=RADIUS_CARD, checkbox_width=18, checkbox_height=18,
+            fg_color=C_PEARL, hover_color=C_ASH, checkmark_color=C_SURFACE_DEEP,
+            border_color=C_STEEL, border_width=1)
         chk.pack(side="left", padx=(10, 5), pady=10)
             
         # 썸네일 이미지 라벨 (플레이스홀더 상태로 선설정)
@@ -680,10 +732,13 @@ class ScrollableSearchFrame(ctk.CTkScrollableFrame):
         play_btn = ctk.CTkButton(
             frame,
             text="▶ 재생",
+            text_color=C_PEARL,
             width=60,
             height=26,
-            fg_color=C_ACCENT,
-            hover_color=C_ACCENT_HOVER,
+            fg_color="transparent",
+            border_width=1,
+            border_color=C_STEEL,
+            hover_color=C_GRAPHITE,
             font=FONT_LABEL_BOLD,
             command=lambda url=item['url']: webbrowser.open(url)
         )
@@ -772,11 +827,15 @@ class ScrollableQueueFrame(ctk.CTkScrollableFrame):
             return
             
         for idx, item in enumerate(queue_items):
-            frame = ctk.CTkFrame(self, fg_color=C_SURFACE, corner_radius=6)
+            frame = ctk.CTkFrame(self, fg_color=C_SURFACE_DEEP, corner_radius=RADIUS_CARD)
             frame.pack(fill="x", pady=4, padx=5)
             
             # 체크박스 연결
-            chk = ctk.CTkCheckBox(frame, text="", variable=item['check_var'], width=20)
+            chk = ctk.CTkCheckBox(
+            frame, text="", variable=item['check_var'], width=20,
+            corner_radius=RADIUS_CARD, checkbox_width=18, checkbox_height=18,
+            fg_color=C_PEARL, hover_color=C_ASH, checkmark_color=C_SURFACE_DEEP,
+            border_color=C_STEEL, border_width=1)
             chk.pack(side="left", padx=(10, 5), pady=10)
             self.row_controls.append(chk)
             
@@ -804,7 +863,7 @@ class ScrollableQueueFrame(ctk.CTkScrollableFrame):
                 status_color = C_WARNING
             elif status == 'downloading':
                 status_text = "다운로드 중..."
-                status_color = C_ACCENT
+                status_color = C_PEARL
             elif status == 'converting':
                 status_text = "음원 변환 중..."
                 status_color = C_WARNING
@@ -832,11 +891,14 @@ class ScrollableQueueFrame(ctk.CTkScrollableFrame):
             # 대기열 삭제 버튼
             del_btn = ctk.CTkButton(
                 frame, 
-                text="제거", 
+                text="제거",
+            text_color=C_PEARL, 
                 width=50, 
                 height=26,
-                fg_color=C_SURFACE_MUTED,
-                hover_color=C_SURFACE_MUTED_HOVER,
+                fg_color="transparent",
+            border_width=1,
+            border_color=C_STEEL,
+                hover_color=C_GRAPHITE,
                 font=FONT_LABEL_BOLD,
                 command=lambda index=idx: delete_callback(index)
             )
@@ -857,6 +919,7 @@ class YoutubeDownloaderApp(ctk.CTk):
         self.title("YouTube Music Downloader - Batch Queue Edition")
         self.geometry("800x700")
         self.minsize(750, 650)
+        self.configure(fg_color=C_BG)
         
         # 자식 프로세스(ffmpeg)가 앱보다 오래 살지 못하도록 묶는다
         self._job_handle = bind_children_to_process_lifetime()
@@ -910,17 +973,31 @@ class YoutubeDownloaderApp(ctk.CTk):
         
     def create_widgets(self):
         # 1. 상단 타이틀
+        # 헤드라인은 흰색. 노랑은 주 동작 버튼 하나에만 남겨 둔다.
         title_label = ctk.CTkLabel(
-            self, 
-            text="YouTube Music Downloader", 
+            self,
+            text=tracked("YouTube Music Downloader"),
             font=FONT_TITLE,
-            text_color=C_ACCENT
+            text_color=C_PEARL
         )
-        title_label.pack(pady=(15, 10))
+        title_label.pack(pady=(PAD_L, PAD_M))
         
         # 2. 탭 뷰 초기화
-        self.tabview = ctk.CTkTabview(self, segmented_button_selected_color=C_ACCENT)
-        self.tabview.pack(fill="both", expand=True, padx=15, pady=(0, 15))
+        self.tabview = ctk.CTkTabview(
+            self,
+            corner_radius=RADIUS_CARD,
+            fg_color=C_SURFACE,
+            segmented_button_fg_color=C_BG,
+            # CTkTabview 는 글자색을 하나만 받는다.
+            # 선택 탭을 흰 블록으로 두면 비선택 탭 글자가 묻히므로,
+            # 글자는 전부 흰색으로 두고 선택은 밝은 면으로 구분한다.
+            segmented_button_selected_color=C_GRAPHITE,
+            segmented_button_selected_hover_color=C_GRAPHITE,
+            segmented_button_unselected_color=C_BG,
+            segmented_button_unselected_hover_color=C_SURFACE,
+            text_color=C_PEARL,
+        )
+        self.tabview.pack(fill="both", expand=True, padx=PAD_M, pady=(0, PAD_M))
         
         self.tab_search = self.tabview.add("검색 및 추가")
         self.tab_queue = self.tabview.add("다운로드 대기열")
@@ -938,23 +1015,33 @@ class YoutubeDownloaderApp(ctk.CTk):
         search_bar.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
         
         self.search_entry = ctk.CTkEntry(
-            search_bar, 
-            placeholder_text="유튜브 검색 키워드를 입력하세요... (예: 아이유 히트곡)", 
-            height=35,
-            font=FONT_BODY
+            search_bar,
+            placeholder_text="유튜브 검색 키워드를 입력하세요... (예: 아이유 히트곡)",
+            height=36,
+            font=FONT_BODY,
+            corner_radius=RADIUS_CARD,
+            fg_color=C_SURFACE_DEEP,
+            border_color=C_GRAPHITE,
+            border_width=1,
+            text_color=C_PEARL,
+            placeholder_text_color=C_STEEL,
         )
         self.search_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
         self.search_entry.bind("<Return>", lambda event: self.start_search())
         
         self.search_btn = ctk.CTkButton(
             search_bar, 
-            text="유튜브 검색", 
+            text="유튜브 검색",
+            text_color=C_PEARL, 
             width=100, 
             height=35,
-            fg_color=C_ACCENT,
-            hover_color=C_ACCENT_HOVER,
+            fg_color="transparent",
+            border_width=1,
+            border_color=C_STEEL,
+            hover_color=C_GRAPHITE,
             font=FONT_BODY_BOLD,
-            command=self.start_search
+            command=self.start_search,
+            corner_radius=RADIUS_BUTTON
         )
         self.search_btn.pack(side="right", padx=(5, 0))
         
@@ -971,11 +1058,12 @@ class YoutubeDownloaderApp(ctk.CTk):
             search_action_bar, 
             text="선택한 항목 다운로드 대기열에 추가", 
             height=38,
-            fg_color=C_SUCCESS,
-            hover_color=C_SUCCESS_HOVER,
-            text_color=C_SURFACE,
+            fg_color=C_GIALLO,
+            hover_color=C_GIALLO_SHADE,
+            text_color=C_SURFACE_DEEP,
             font=FONT_HEADING,
-            command=self.add_selected_to_queue
+            command=self.add_selected_to_queue,
+            corner_radius=RADIUS_BUTTON
         )
         self.add_queue_btn.pack(fill="x")
         
@@ -991,7 +1079,7 @@ class YoutubeDownloaderApp(ctk.CTk):
         self.queue_scroll.populate_queue(self.queue_items, self.delete_queue_item)
         
         # 대기열 하단 제어 및 설정 영역
-        queue_ctrl_frame = ctk.CTkFrame(self.tab_queue, fg_color=C_SURFACE, corner_radius=8)
+        queue_ctrl_frame = ctk.CTkFrame(self.tab_queue, fg_color=C_SURFACE, corner_radius=RADIUS_CARD)
         queue_ctrl_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(5, 10))
         
         # 직접 링크 추가 영역
@@ -1004,20 +1092,30 @@ class YoutubeDownloaderApp(ctk.CTk):
             direct_add_row, 
             placeholder_text="https://www.youtube.com/watch?v=...", 
             height=30,
-            font=FONT_LABEL
+            font=FONT_LABEL,
+            corner_radius=RADIUS_CARD,
+            fg_color=C_SURFACE_DEEP,
+            border_color=C_GRAPHITE,
+            border_width=1,
+            text_color=C_PEARL,
+            placeholder_text_color=C_STEEL,
         )
         self.direct_url_entry.pack(side="left", fill="x", expand=True, padx=5)
         self.direct_url_entry.bind("<Return>", lambda event: self.add_direct_url())
         
         self.direct_add_btn = ctk.CTkButton(
             direct_add_row, 
-            text="대기열 추가", 
+            text="대기열 추가",
+            text_color=C_PEARL, 
             width=90, 
             height=30,
-            fg_color=C_ACCENT,
-            hover_color=C_ACCENT_HOVER,
+            fg_color="transparent",
+            border_width=1,
+            border_color=C_STEEL,
+            hover_color=C_GRAPHITE,
             font=FONT_LABEL_BOLD,
-            command=self.add_direct_url
+            command=self.add_direct_url,
+            corner_radius=RADIUS_BUTTON
         )
         self.direct_add_btn.pack(side="right", padx=(5, 0))
         
@@ -1031,19 +1129,29 @@ class YoutubeDownloaderApp(ctk.CTk):
             save_dir_row, 
             textvariable=self.save_dir_var,
             height=30,
-            font=FONT_LABEL
+            font=FONT_LABEL,
+            corner_radius=RADIUS_CARD,
+            fg_color=C_SURFACE_DEEP,
+            border_color=C_GRAPHITE,
+            border_width=1,
+            text_color=C_PEARL,
+            placeholder_text_color=C_STEEL,
         )
         self.save_dir_entry.pack(side="left", fill="x", expand=True, padx=5)
         
         self.save_dir_btn = ctk.CTkButton(
             save_dir_row, 
-            text="폴더 변경", 
+            text="폴더 변경",
+            text_color=C_PEARL, 
             width=90, 
             height=30,
-            fg_color=C_DISABLED,
-            hover_color=C_HOVER_NEUTRAL,
+            fg_color="transparent",
+            border_width=1,
+            border_color=C_STEEL,
+            hover_color=C_GRAPHITE,
             font=FONT_LABEL_BOLD,
-            command=self.browse_save_dir
+            command=self.browse_save_dir,
+            corner_radius=RADIUS_BUTTON
         )
         self.save_dir_btn.pack(side="right", padx=(5, 0))
         
@@ -1055,11 +1163,20 @@ class YoutubeDownloaderApp(ctk.CTk):
         
         self.format_var = ctk.StringVar(value="MP3")
         self.format_select = ctk.CTkSegmentedButton(
-            settings_row, 
-            values=["MP3", "FLAC", "MP4"], 
+            settings_row,
+            values=["MP3", "FLAC", "MP4"],
             variable=self.format_var,
             command=self.on_format_changed,
-            font=FONT_LABEL_BOLD
+            font=FONT_LABEL_BOLD,
+            corner_radius=RADIUS_BUTTON,
+            fg_color=C_SURFACE_DEEP,
+            # 글자색을 하나만 받으므로, 선택 상태는 면 밝기로 확실히 벌린다
+            selected_color=C_STEEL,
+            selected_hover_color=C_STEEL,
+            unselected_color=C_SURFACE_DEEP,
+            unselected_hover_color=C_GRAPHITE,
+            text_color=C_PEARL,
+            border_width=0,
         )
         self.format_select.pack(side="left", padx=5)
         
@@ -1068,35 +1185,51 @@ class YoutubeDownloaderApp(ctk.CTk):
         
         self.quality_var = ctk.StringVar(value="320kbps")
         self.quality_select = ctk.CTkOptionMenu(
-            settings_row, 
-            values=["320kbps", "256kbps", "192kbps"], 
+            settings_row,
+            values=["320kbps", "256kbps", "192kbps"],
             variable=self.quality_var,
             width=100,
-            font=FONT_LABEL
+            font=FONT_LABEL,
+            corner_radius=RADIUS_BUTTON,
+            fg_color=C_SURFACE_DEEP,
+            button_color=C_GRAPHITE,
+            button_hover_color=C_STEEL,
+            text_color=C_PEARL,
+            dropdown_fg_color=C_SURFACE,
+            dropdown_hover_color=C_GRAPHITE,
+            dropdown_text_color=C_PEARL,
         )
         self.quality_select.pack(side="left", padx=5)
         
         self.clear_completed_btn = ctk.CTkButton(
             settings_row, 
-            text="완료 항목 제거", 
+            text="완료 항목 제거",
+            text_color=C_PEARL, 
             width=100, 
             height=28,
-            fg_color=C_SURFACE_MUTED,
-            hover_color=C_SURFACE_MUTED_HOVER,
+            fg_color="transparent",
+            border_width=1,
+            border_color=C_STEEL,
+            hover_color=C_GRAPHITE,
             font=FONT_LABEL_BOLD,
-            command=self.clear_completed_queue
+            command=self.clear_completed_queue,
+            corner_radius=RADIUS_BUTTON
         )
         self.clear_completed_btn.pack(side="right", padx=(5, 5))
 
         self.clear_queue_btn = ctk.CTkButton(
             settings_row, 
-            text="대기열 비우기", 
+            text="대기열 비우기",
+            text_color=C_PEARL, 
             width=90, 
             height=28,
-            fg_color=C_SURFACE_MUTED,
-            hover_color=C_SURFACE_MUTED_HOVER,
+            fg_color="transparent",
+            border_width=1,
+            border_color=C_STEEL,
+            hover_color=C_GRAPHITE,
             font=FONT_LABEL_BOLD,
-            command=self.clear_queue
+            command=self.clear_queue,
+            corner_radius=RADIUS_BUTTON
         )
         self.clear_queue_btn.pack(side="right", padx=(5, 0))
         
@@ -1108,7 +1241,9 @@ class YoutubeDownloaderApp(ctk.CTk):
         self.queue_status_lbl.pack(fill="x", pady=(2, 2))
         
         # 현재 곡 진행 상황 바
-        self.cur_prog_bar = ctk.CTkProgressBar(self.progress_row, height=8, progress_color=C_ACCENT)
+        self.cur_prog_bar = ctk.CTkProgressBar(
+            self.progress_row, height=PAD_S, corner_radius=RADIUS_CARD,
+            fg_color=C_GRAPHITE, progress_color=C_GIALLO)
         self.cur_prog_bar.set(0.0)
         self.cur_prog_bar.pack(fill="x", pady=2)
         
@@ -1119,7 +1254,9 @@ class YoutubeDownloaderApp(ctk.CTk):
         self.overall_status_lbl = ctk.CTkLabel(self.progress_row, text="전체 진행 상황:", font=FONT_LABEL_BOLD, text_color=C_TEXT_MUTED, anchor="w")
         self.overall_status_lbl.pack(fill="x", pady=(2, 2))
         
-        self.total_prog_bar = ctk.CTkProgressBar(self.progress_row, height=8, progress_color=C_SUCCESS)
+        self.total_prog_bar = ctk.CTkProgressBar(
+            self.progress_row, height=PAD_S, corner_radius=RADIUS_CARD,
+            fg_color=C_GRAPHITE, progress_color=C_PEARL)
         self.total_prog_bar.set(0.0)
         self.total_prog_bar.pack(fill="x", pady=2)
         
@@ -1131,34 +1268,43 @@ class YoutubeDownloaderApp(ctk.CTk):
             btn_row, 
             text="선택된 항목 다운로드 시작", 
             height=38,
-            fg_color=C_SUCCESS,
-            hover_color=C_SUCCESS_HOVER,
-            text_color=C_SURFACE,
+            fg_color="transparent",
+            border_width=1,
+            border_color=C_STEEL,
+            hover_color=C_GRAPHITE,
+            text_color=C_PEARL,
             font=FONT_HEADING,
-            command=self.start_selected_download
+            command=self.start_selected_download,
+            corner_radius=RADIUS_BUTTON
         )
         self.download_selected_btn.pack(side="left", fill="x", expand=True, padx=(0, 4))
         
         self.download_all_btn = ctk.CTkButton(
             btn_row, 
-            text="대기열 전체 다운로드 시작", 
+            text="대기열 전체 다운로드 시작",
+            text_color=C_SURFACE_DEEP, 
             height=38,
-            fg_color=C_ACCENT,
-            hover_color=C_ACCENT_HOVER,
+            fg_color=C_GIALLO,
+            hover_color=C_GIALLO_SHADE,
             font=FONT_HEADING,
-            command=self.start_all_download
+            command=self.start_all_download,
+            corner_radius=RADIUS_BUTTON
         )
         self.download_all_btn.pack(side="left", fill="x", expand=True, padx=4)
         
         self.stop_download_btn = ctk.CTkButton(
             btn_row,
             text="다운로드 중단",
+            text_color=C_PEARL,
             height=38,
-            fg_color=C_DISABLED,
-            hover_color=C_HOVER_NEUTRAL,
+            fg_color="transparent",
+            border_width=1,
+            border_color=C_STEEL,
+            hover_color=C_GRAPHITE,
             state="disabled",
             font=FONT_HEADING,
-            command=self.request_stop_download
+            command=self.request_stop_download,
+            corner_radius=RADIUS_BUTTON
         )
         self.stop_download_btn.pack(side="right", fill="x", expand=True, padx=(4, 0))
         
@@ -1176,25 +1322,33 @@ class YoutubeDownloaderApp(ctk.CTk):
         
         open_audio_folder_btn = ctk.CTkButton(
             audio_header, 
-            text="폴더 열기", 
+            text="폴더 열기",
+            text_color=C_PEARL, 
             width=80, 
             height=26,
-            fg_color=C_INFO,
-            hover_color=C_INFO_HOVER,
+            fg_color="transparent",
+            border_width=1,
+            border_color=C_STEEL,
+            hover_color=C_GRAPHITE,
             font=FONT_LABEL_BOLD,
-            command=self.open_download_folder
+            command=self.open_download_folder,
+            corner_radius=RADIUS_BUTTON
         )
         open_audio_folder_btn.pack(side="right", padx=5)
         
         self.delete_all_audio_btn = ctk.CTkButton(
             audio_header, 
-            text="목록 전체 삭제", 
+            text="목록 전체 삭제",
+            text_color=C_PEARL, 
             width=100, 
             height=26,
-            fg_color=C_DANGER,
-            hover_color=C_DANGER_HOVER,
+            fg_color="transparent",
+            border_width=1,
+            border_color=C_STEEL,
+            hover_color=C_GRAPHITE,
             font=FONT_LABEL_BOLD,
-            command=self.delete_all_completed_audio
+            command=self.delete_all_completed_audio,
+            corner_radius=RADIUS_BUTTON
         )
         self.delete_all_audio_btn.pack(side="right", padx=5)
         
@@ -1218,10 +1372,14 @@ class YoutubeDownloaderApp(ctk.CTk):
             text="폴더 열기", 
             width=80, 
             height=26,
-            fg_color=C_INFO,
-            hover_color=C_INFO_HOVER,
+            fg_color="transparent",
+            border_width=1,
+            border_color=C_STEEL,
+            hover_color=C_GRAPHITE,
+            text_color=C_PEARL,
             font=FONT_LABEL_BOLD,
-            command=self.open_download_folder
+            command=self.open_download_folder,
+            corner_radius=RADIUS_BUTTON
         )
         open_video_folder_btn.pack(side="right", padx=5)
         
@@ -1230,10 +1388,14 @@ class YoutubeDownloaderApp(ctk.CTk):
             text="목록 전체 삭제", 
             width=100, 
             height=26,
-            fg_color=C_DANGER,
-            hover_color=C_DANGER_HOVER,
+            fg_color="transparent",
+            border_width=1,
+            border_color=C_STEEL,
+            hover_color=C_GRAPHITE,
+            text_color=C_PEARL,
             font=FONT_LABEL_BOLD,
-            command=self.delete_all_completed_video
+            command=self.delete_all_completed_video,
+            corner_radius=RADIUS_BUTTON
         )
         self.delete_all_video_btn.pack(side="right", padx=5)
         
@@ -1540,7 +1702,8 @@ class YoutubeDownloaderApp(ctk.CTk):
 
         self.stop_requested = True
         # 배경까지 회색으로 바꿔야 '눌리는데 반응 없는 버튼' 으로 보이지 않는다
-        self.stop_download_btn.configure(state="disabled", fg_color=C_DISABLED)
+        self.stop_download_btn.configure(
+            state="disabled", border_color=C_GRAPHITE, text_color=C_GRAPHITE)
 
         # 변환(FFmpeg) 단계에서는 progress_hook 이 불리지 않아 플래그만으로는 멈추지 않는다.
         # 실행 중인 자식 ffmpeg 를 직접 종료해야 즉시 중단된다.
@@ -2005,9 +2168,10 @@ class YoutubeDownloaderApp(ctk.CTk):
 
         if locked:
             self.stop_download_btn.configure(
-                state="normal", fg_color=C_DANGER, hover_color=C_DANGER_HOVER)
+                state="normal", border_color=C_PEARL, text_color=C_PEARL)
         else:
-            self.stop_download_btn.configure(state="disabled", fg_color=C_DISABLED)
+            self.stop_download_btn.configure(
+                state="disabled", border_color=C_GRAPHITE, text_color=C_GRAPHITE)
 
         # 대기열 항목의 체크박스/제거 버튼도 함께 잠근다
         try:
@@ -2095,9 +2259,11 @@ class YoutubeDownloaderApp(ctk.CTk):
         ok_btn = ctk.CTkButton(
             err_win,
             text="확인",
+            text_color=C_SURFACE_DEEP,
             width=100,
-            fg_color=C_ACCENT,
-            command=close
+            fg_color=C_GIALLO,
+            command=close,
+            corner_radius=RADIUS_BUTTON
         )
         ok_btn.pack(side="bottom", pady=(0, 20))
 
