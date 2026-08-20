@@ -434,6 +434,45 @@ def resource_path(relative_path):
     base_path = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base_path, relative_path)
 
+# ---------------------------------------------------------------------------
+# 디자인 토큰 (design.md 기반)
+# 색상과 서체를 한 곳에서만 정의한다. 위젯 코드에는 리터럴을 두지 않는다.
+# ---------------------------------------------------------------------------
+C_ACCENT = "#3A86FF"          # 주 강조 (기본 동작 버튼, 활성 탭, 진행 바)
+C_ACCENT_HOVER = "#2563EB"
+C_SUCCESS = "#06D6A0"         # 완료 상태 / 대기열 추가 버튼
+C_SUCCESS_HOVER = "#05B386"
+C_DANGER = "#FF007F"          # 실패 / 중단 / 삭제
+C_DANGER_HOVER = "#CC0066"
+C_WARNING = "#F77F00"         # 변환 중
+C_INFO = "#4F46E5"            # 보조 동작 버튼
+C_INFO_HOVER = "#4338CA"
+
+C_SURFACE = "#1E1E2E"         # 카드/행 배경
+C_SURFACE_DEEP = "#141421"    # 더 어두운 면
+C_SURFACE_MUTED = "#343A40"   # 중립 버튼 배경
+C_SURFACE_MUTED_HOVER = "#495057"
+C_DISABLED = "#4F5D75"        # 비활성 버튼
+
+C_TEXT = "#E0E0E6"            # 본문 텍스트
+C_TEXT_MUTED = "#A0A0B0"      # 보조 텍스트
+C_TEXT_DIM = "#888888"        # 흐린 안내 텍스트
+C_TEXT_FAINT = "#666666"      # 가장 흐린 텍스트
+C_HOVER_NEUTRAL = "#3D4A5E"
+
+FONT_FAMILY = "Malgun Gothic"
+FONT_TITLE = (FONT_FAMILY, 22, "bold")
+FONT_HEADING = (FONT_FAMILY, 13, "bold")
+FONT_BODY_BOLD = (FONT_FAMILY, 12, "bold")
+FONT_BODY = (FONT_FAMILY, 12)
+FONT_LABEL_BOLD = (FONT_FAMILY, 11, "bold")
+FONT_LABEL = (FONT_FAMILY, 11)
+FONT_ITEM = (FONT_FAMILY, 13)
+FONT_CAPTION = (FONT_FAMILY, 10)
+
+RADIUS_CARD = 6
+RADIUS_BUTTON = 6
+
 UNKNOWN_TIME = "--:--"
 TEMP_DIR_NAME = ".utube_tmp"  # 변환 전 중간 파일을 격리하는 폴더
 BR = chr(10)  # 대화상자 줄바꿈
@@ -475,28 +514,28 @@ class ScrollableFileFrame(ctk.CTkScrollableFrame):
         self.file_items.clear()
         
         if not files:
-            label = ctk.CTkLabel(self, text=empty_text, font=("Malgun Gothic", 13), text_color="#888888")
+            label = ctk.CTkLabel(self, text=empty_text, font=FONT_ITEM, text_color=C_TEXT_DIM)
             label.pack(pady=20)
             self.file_items.append(label)
             return
             
         for f in files:
-            frame = ctk.CTkFrame(self, fg_color="#1E1E2E", corner_radius=6)
+            frame = ctk.CTkFrame(self, fg_color=C_SURFACE, corner_radius=6)
             frame.pack(fill="x", pady=4, padx=5)
             
             ext = os.path.splitext(f)[1].upper()
             if ext == ".MP3":
-                ext_color = "#3A86FF"
+                ext_color = C_ACCENT
             elif ext == ".FLAC":
-                ext_color = "#06D6A0"
+                ext_color = C_SUCCESS
             elif ext == ".MP4":
-                ext_color = "#F77F00"
+                ext_color = C_WARNING
             else:
-                ext_color = "#888888"
-            ext_label = ctk.CTkLabel(frame, text=ext.replace(".", ""), font=("Malgun Gothic", 11, "bold"), text_color=ext_color, width=45)
+                ext_color = C_TEXT_DIM
+            ext_label = ctk.CTkLabel(frame, text=ext.replace(".", ""), font=FONT_LABEL_BOLD, text_color=ext_color, width=45)
             ext_label.pack(side="left", padx=(10, 5), pady=8)
             
-            file_label = ctk.CTkLabel(frame, text=f, anchor="w", font=("Malgun Gothic", 12), text_color="#E0E0E6")
+            file_label = ctk.CTkLabel(frame, text=f, anchor="w", font=FONT_BODY, text_color=C_TEXT)
             file_label.pack(side="left", fill="x", expand=True, padx=5)
             
             play_btn = ctk.CTkButton(
@@ -504,9 +543,9 @@ class ScrollableFileFrame(ctk.CTkScrollableFrame):
                 text="재생", 
                 width=50, 
                 height=26,
-                fg_color="#3A86FF",
-                hover_color="#2563EB",
-                font=("Malgun Gothic", 11, "bold"),
+                fg_color=C_ACCENT,
+                hover_color=C_ACCENT_HOVER,
+                font=FONT_LABEL_BOLD,
                 command=lambda fname=f: play_callback(fname)
             )
             play_btn.pack(side="right", padx=5)
@@ -516,9 +555,9 @@ class ScrollableFileFrame(ctk.CTkScrollableFrame):
                 text="삭제", 
                 width=50, 
                 height=26,
-                fg_color="#FF007F",
-                hover_color="#CC0066",
-                font=("Malgun Gothic", 11, "bold"),
+                fg_color=C_DANGER,
+                hover_color=C_DANGER_HOVER,
+                font=FONT_LABEL_BOLD,
                 command=lambda fname=f: delete_callback(fname)
             )
             del_btn.pack(side="right", padx=(0, 10))
@@ -557,7 +596,7 @@ class ScrollableSearchFrame(ctk.CTkScrollableFrame):
         except Exception:
             def set_fail():
                 if label_widget.winfo_exists():
-                    label_widget.configure(text="No Image", text_color="#666666")
+                    label_widget.configure(text="No Image", text_color=C_TEXT_FAINT)
             label_widget.after(0, set_fail)
 
     def cancel_render(self):
@@ -577,7 +616,7 @@ class ScrollableSearchFrame(ctk.CTkScrollableFrame):
         self.search_results_data.clear()
 
         if not results:
-            label = ctk.CTkLabel(self, text=empty_text, font=("Malgun Gothic", 13), text_color="#888888")
+            label = ctk.CTkLabel(self, text=empty_text, font=FONT_ITEM, text_color=C_TEXT_DIM)
             label.pack(pady=40)
             self.search_widgets.append(label)
             return
@@ -617,7 +656,7 @@ class ScrollableSearchFrame(ctk.CTkScrollableFrame):
             self.render_job = self.after(1, self._render_chunk, results, next_start, chunk_size)
 
     def _render_row(self, idx, item):
-        frame = ctk.CTkFrame(self, fg_color="#1E1E2E", corner_radius=6)
+        frame = ctk.CTkFrame(self, fg_color=C_SURFACE, corner_radius=6)
         frame.pack(fill="x", pady=4, padx=5)
             
         # populate_results 에서 미리 만들어 둔 체크 변수를 재사용한다
@@ -631,9 +670,9 @@ class ScrollableSearchFrame(ctk.CTkScrollableFrame):
             text="로딩 중...", 
             width=80, 
             height=45, 
-            fg_color="#141421", 
-            font=("Malgun Gothic", 10), 
-            text_color="#888888"
+            fg_color=C_SURFACE_DEEP, 
+            font=FONT_CAPTION, 
+            text_color=C_TEXT_DIM
         )
         thumbnail_lbl.pack(side="left", padx=5, pady=5)
             
@@ -643,9 +682,9 @@ class ScrollableSearchFrame(ctk.CTkScrollableFrame):
             text="▶ 재생",
             width=60,
             height=26,
-            fg_color="#3A86FF",
-            hover_color="#2563EB",
-            font=("Malgun Gothic", 11, "bold"),
+            fg_color=C_ACCENT,
+            hover_color=C_ACCENT_HOVER,
+            font=FONT_LABEL_BOLD,
             command=lambda url=item['url']: webbrowser.open(url)
         )
         play_btn.pack(side="right", padx=(5, 10), pady=10)
@@ -658,8 +697,8 @@ class ScrollableSearchFrame(ctk.CTkScrollableFrame):
             info_frame, 
             text=item['title'], 
             anchor="w", 
-            font=("Malgun Gothic", 12, "bold"), 
-            text_color="#E0E0E6",
+            font=FONT_BODY_BOLD, 
+            text_color=C_TEXT,
             justify="left",
             wraplength=420  # 제목이 너무 길 경우 겹치지 않고 줄바꿈되도록 wraplength 지정
         )
@@ -669,8 +708,8 @@ class ScrollableSearchFrame(ctk.CTkScrollableFrame):
             info_frame, 
             text=f"채널: {item['uploader']} | 길이: {item['duration']}", 
             anchor="w", 
-            font=("Malgun Gothic", 11), 
-            text_color="#888888"
+            font=FONT_LABEL, 
+            text_color=C_TEXT_DIM
         )
         sub_lbl.pack(fill="x", anchor="w")
             
@@ -727,13 +766,13 @@ class ScrollableQueueFrame(ctk.CTkScrollableFrame):
         self.row_controls.clear()
         
         if not queue_items:
-            label = ctk.CTkLabel(self, text="대기열이 비어 있습니다. '검색 및 추가' 탭에서 노래를 추가해 주세요.", font=("Malgun Gothic", 13), text_color="#888888")
+            label = ctk.CTkLabel(self, text="대기열이 비어 있습니다. '검색 및 추가' 탭에서 노래를 추가해 주세요.", font=FONT_ITEM, text_color=C_TEXT_DIM)
             label.pack(pady=40)
             self.queue_widgets.append(label)
             return
             
         for idx, item in enumerate(queue_items):
-            frame = ctk.CTkFrame(self, fg_color="#1E1E2E", corner_radius=6)
+            frame = ctk.CTkFrame(self, fg_color=C_SURFACE, corner_radius=6)
             frame.pack(fill="x", pady=4, padx=5)
             
             # 체크박스 연결
@@ -749,8 +788,8 @@ class ScrollableQueueFrame(ctk.CTkScrollableFrame):
                 info_frame, 
                 text=item['title'], 
                 anchor="w", 
-                font=("Malgun Gothic", 12, "bold"), 
-                text_color="#E0E0E6",
+                font=FONT_BODY_BOLD, 
+                text_color=C_TEXT,
                 justify="left"
             )
             title_lbl.pack(fill="x", anchor="w")
@@ -758,34 +797,34 @@ class ScrollableQueueFrame(ctk.CTkScrollableFrame):
             # 상태에 따른 텍스트 컬러 지정
             status = item['status']
             status_text = "대기 중"
-            status_color = "#888888"
+            status_color = C_TEXT_DIM
             
             if status == 'analyzing':
                 status_text = "분석 중..."
-                status_color = "#F77F00"
+                status_color = C_WARNING
             elif status == 'downloading':
                 status_text = "다운로드 중..."
-                status_color = "#3A86FF"
+                status_color = C_ACCENT
             elif status == 'converting':
                 status_text = "음원 변환 중..."
-                status_color = "#F77F00"
+                status_color = C_WARNING
             elif status == 'finished':
                 status_text = "완료"
-                status_color = "#06D6A0"
+                status_color = C_SUCCESS
             elif status == 'stopped':
                 status_text = "사용자 중단"
-                status_color = "#A0A0B0"
+                status_color = C_TEXT_MUTED
             elif status == 'failed':
                 # 실패 사유를 함께 보여줘야 사용자가 조치할 수 있다
                 reason = item.get('error')
                 status_text = f"실패 - {reason}" if reason else "실패"
-                status_color = "#FF007F"
+                status_color = C_DANGER
                 
             sub_lbl = ctk.CTkLabel(
                 info_frame, 
                 text=f"채널: {item['uploader']} | 길이: {item['duration']} | 상태: {status_text}", 
                 anchor="w", 
-                font=("Malgun Gothic", 11), 
+                font=FONT_LABEL, 
                 text_color=status_color
             )
             sub_lbl.pack(fill="x", anchor="w")
@@ -796,9 +835,9 @@ class ScrollableQueueFrame(ctk.CTkScrollableFrame):
                 text="제거", 
                 width=50, 
                 height=26,
-                fg_color="#343A40",
-                hover_color="#495057",
-                font=("Malgun Gothic", 11, "bold"),
+                fg_color=C_SURFACE_MUTED,
+                hover_color=C_SURFACE_MUTED_HOVER,
+                font=FONT_LABEL_BOLD,
                 command=lambda index=idx: delete_callback(index)
             )
             del_btn.pack(side="right", padx=(5, 10))
@@ -874,13 +913,13 @@ class YoutubeDownloaderApp(ctk.CTk):
         title_label = ctk.CTkLabel(
             self, 
             text="YouTube Music Downloader", 
-            font=("Malgun Gothic", 22, "bold"),
-            text_color="#3A86FF"
+            font=FONT_TITLE,
+            text_color=C_ACCENT
         )
         title_label.pack(pady=(15, 10))
         
         # 2. 탭 뷰 초기화
-        self.tabview = ctk.CTkTabview(self, segmented_button_selected_color="#3A86FF")
+        self.tabview = ctk.CTkTabview(self, segmented_button_selected_color=C_ACCENT)
         self.tabview.pack(fill="both", expand=True, padx=15, pady=(0, 15))
         
         self.tab_search = self.tabview.add("검색 및 추가")
@@ -902,7 +941,7 @@ class YoutubeDownloaderApp(ctk.CTk):
             search_bar, 
             placeholder_text="유튜브 검색 키워드를 입력하세요... (예: 아이유 히트곡)", 
             height=35,
-            font=("Malgun Gothic", 12)
+            font=FONT_BODY
         )
         self.search_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
         self.search_entry.bind("<Return>", lambda event: self.start_search())
@@ -912,9 +951,9 @@ class YoutubeDownloaderApp(ctk.CTk):
             text="유튜브 검색", 
             width=100, 
             height=35,
-            fg_color="#3A86FF",
-            hover_color="#2563EB",
-            font=("Malgun Gothic", 12, "bold"),
+            fg_color=C_ACCENT,
+            hover_color=C_ACCENT_HOVER,
+            font=FONT_BODY_BOLD,
             command=self.start_search
         )
         self.search_btn.pack(side="right", padx=(5, 0))
@@ -932,10 +971,10 @@ class YoutubeDownloaderApp(ctk.CTk):
             search_action_bar, 
             text="선택한 항목 다운로드 대기열에 추가", 
             height=38,
-            fg_color="#06D6A0",
-            hover_color="#05B386",
-            text_color="#1E1E2E",
-            font=("Malgun Gothic", 13, "bold"),
+            fg_color=C_SUCCESS,
+            hover_color=C_SUCCESS_HOVER,
+            text_color=C_SURFACE,
+            font=FONT_HEADING,
             command=self.add_selected_to_queue
         )
         self.add_queue_btn.pack(fill="x")
@@ -952,20 +991,20 @@ class YoutubeDownloaderApp(ctk.CTk):
         self.queue_scroll.populate_queue(self.queue_items, self.delete_queue_item)
         
         # 대기열 하단 제어 및 설정 영역
-        queue_ctrl_frame = ctk.CTkFrame(self.tab_queue, fg_color="#1E1E2E", corner_radius=8)
+        queue_ctrl_frame = ctk.CTkFrame(self.tab_queue, fg_color=C_SURFACE, corner_radius=8)
         queue_ctrl_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(5, 10))
         
         # 직접 링크 추가 영역
         direct_add_row = ctk.CTkFrame(queue_ctrl_frame, fg_color="transparent")
         direct_add_row.pack(fill="x", padx=15, pady=(10, 5))
         
-        ctk.CTkLabel(direct_add_row, text="유튜브 링크 직접 추가:", font=("Malgun Gothic", 12, "bold"), text_color="#A0A0B0").pack(side="left", padx=(0, 5))
+        ctk.CTkLabel(direct_add_row, text="유튜브 링크 직접 추가:", font=FONT_BODY_BOLD, text_color=C_TEXT_MUTED).pack(side="left", padx=(0, 5))
         
         self.direct_url_entry = ctk.CTkEntry(
             direct_add_row, 
             placeholder_text="https://www.youtube.com/watch?v=...", 
             height=30,
-            font=("Malgun Gothic", 11)
+            font=FONT_LABEL
         )
         self.direct_url_entry.pack(side="left", fill="x", expand=True, padx=5)
         self.direct_url_entry.bind("<Return>", lambda event: self.add_direct_url())
@@ -975,9 +1014,9 @@ class YoutubeDownloaderApp(ctk.CTk):
             text="대기열 추가", 
             width=90, 
             height=30,
-            fg_color="#3A86FF",
-            hover_color="#2563EB",
-            font=("Malgun Gothic", 11, "bold"),
+            fg_color=C_ACCENT,
+            hover_color=C_ACCENT_HOVER,
+            font=FONT_LABEL_BOLD,
             command=self.add_direct_url
         )
         self.direct_add_btn.pack(side="right", padx=(5, 0))
@@ -986,13 +1025,13 @@ class YoutubeDownloaderApp(ctk.CTk):
         save_dir_row = ctk.CTkFrame(queue_ctrl_frame, fg_color="transparent")
         save_dir_row.pack(fill="x", padx=15, pady=(5, 5))
         
-        ctk.CTkLabel(save_dir_row, text="저장 폴더 지정:", font=("Malgun Gothic", 12, "bold"), text_color="#A0A0B0").pack(side="left", padx=(0, 5))
+        ctk.CTkLabel(save_dir_row, text="저장 폴더 지정:", font=FONT_BODY_BOLD, text_color=C_TEXT_MUTED).pack(side="left", padx=(0, 5))
         
         self.save_dir_entry = ctk.CTkEntry(
             save_dir_row, 
             textvariable=self.save_dir_var,
             height=30,
-            font=("Malgun Gothic", 11)
+            font=FONT_LABEL
         )
         self.save_dir_entry.pack(side="left", fill="x", expand=True, padx=5)
         
@@ -1001,9 +1040,9 @@ class YoutubeDownloaderApp(ctk.CTk):
             text="폴더 변경", 
             width=90, 
             height=30,
-            fg_color="#4F5D75",
-            hover_color="#3D4A5E",
-            font=("Malgun Gothic", 11, "bold"),
+            fg_color=C_DISABLED,
+            hover_color=C_HOVER_NEUTRAL,
+            font=FONT_LABEL_BOLD,
             command=self.browse_save_dir
         )
         self.save_dir_btn.pack(side="right", padx=(5, 0))
@@ -1012,7 +1051,7 @@ class YoutubeDownloaderApp(ctk.CTk):
         settings_row = ctk.CTkFrame(queue_ctrl_frame, fg_color="transparent")
         settings_row.pack(fill="x", padx=15, pady=(5, 5))
         
-        ctk.CTkLabel(settings_row, text="다운로드 형식:", font=("Malgun Gothic", 12, "bold"), text_color="#A0A0B0").pack(side="left", padx=(0, 5))
+        ctk.CTkLabel(settings_row, text="다운로드 형식:", font=FONT_BODY_BOLD, text_color=C_TEXT_MUTED).pack(side="left", padx=(0, 5))
         
         self.format_var = ctk.StringVar(value="MP3")
         self.format_select = ctk.CTkSegmentedButton(
@@ -1020,11 +1059,11 @@ class YoutubeDownloaderApp(ctk.CTk):
             values=["MP3", "FLAC", "MP4"], 
             variable=self.format_var,
             command=self.on_format_changed,
-            font=("Malgun Gothic", 11, "bold")
+            font=FONT_LABEL_BOLD
         )
         self.format_select.pack(side="left", padx=5)
         
-        self.quality_label = ctk.CTkLabel(settings_row, text="음질:", font=("Malgun Gothic", 12, "bold"), text_color="#A0A0B0")
+        self.quality_label = ctk.CTkLabel(settings_row, text="음질:", font=FONT_BODY_BOLD, text_color=C_TEXT_MUTED)
         self.quality_label.pack(side="left", padx=(15, 5))
         
         self.quality_var = ctk.StringVar(value="320kbps")
@@ -1033,7 +1072,7 @@ class YoutubeDownloaderApp(ctk.CTk):
             values=["320kbps", "256kbps", "192kbps"], 
             variable=self.quality_var,
             width=100,
-            font=("Malgun Gothic", 11)
+            font=FONT_LABEL
         )
         self.quality_select.pack(side="left", padx=5)
         
@@ -1042,9 +1081,9 @@ class YoutubeDownloaderApp(ctk.CTk):
             text="완료 항목 제거", 
             width=100, 
             height=28,
-            fg_color="#343A40",
-            hover_color="#495057",
-            font=("Malgun Gothic", 11, "bold"),
+            fg_color=C_SURFACE_MUTED,
+            hover_color=C_SURFACE_MUTED_HOVER,
+            font=FONT_LABEL_BOLD,
             command=self.clear_completed_queue
         )
         self.clear_completed_btn.pack(side="right", padx=(5, 5))
@@ -1054,9 +1093,9 @@ class YoutubeDownloaderApp(ctk.CTk):
             text="대기열 비우기", 
             width=90, 
             height=28,
-            fg_color="#343A40",
-            hover_color="#495057",
-            font=("Malgun Gothic", 11, "bold"),
+            fg_color=C_SURFACE_MUTED,
+            hover_color=C_SURFACE_MUTED_HOVER,
+            font=FONT_LABEL_BOLD,
             command=self.clear_queue
         )
         self.clear_queue_btn.pack(side="right", padx=(5, 0))
@@ -1065,22 +1104,22 @@ class YoutubeDownloaderApp(ctk.CTk):
         self.progress_row = ctk.CTkFrame(queue_ctrl_frame, fg_color="transparent")
         self.progress_row.pack(fill="x", padx=15, pady=5)
         
-        self.queue_status_lbl = ctk.CTkLabel(self.progress_row, text="대기열 상태: 대기 중", font=("Malgun Gothic", 12, "bold"), text_color="#A0A0B0", anchor="w")
+        self.queue_status_lbl = ctk.CTkLabel(self.progress_row, text="대기열 상태: 대기 중", font=FONT_BODY_BOLD, text_color=C_TEXT_MUTED, anchor="w")
         self.queue_status_lbl.pack(fill="x", pady=(2, 2))
         
         # 현재 곡 진행 상황 바
-        self.cur_prog_bar = ctk.CTkProgressBar(self.progress_row, height=8, progress_color="#3A86FF")
+        self.cur_prog_bar = ctk.CTkProgressBar(self.progress_row, height=8, progress_color=C_ACCENT)
         self.cur_prog_bar.set(0.0)
         self.cur_prog_bar.pack(fill="x", pady=2)
         
-        self.cur_stats_lbl = ctk.CTkLabel(self.progress_row, text="", font=("Malgun Gothic", 11), text_color="#888888", anchor="e")
+        self.cur_stats_lbl = ctk.CTkLabel(self.progress_row, text="", font=FONT_LABEL, text_color=C_TEXT_DIM, anchor="e")
         self.cur_stats_lbl.pack(fill="x", pady=(0, 2))
         
         # 전체 대기열 진행 상황 바
-        self.overall_status_lbl = ctk.CTkLabel(self.progress_row, text="전체 진행 상황:", font=("Malgun Gothic", 11, "bold"), text_color="#A0A0B0", anchor="w")
+        self.overall_status_lbl = ctk.CTkLabel(self.progress_row, text="전체 진행 상황:", font=FONT_LABEL_BOLD, text_color=C_TEXT_MUTED, anchor="w")
         self.overall_status_lbl.pack(fill="x", pady=(2, 2))
         
-        self.total_prog_bar = ctk.CTkProgressBar(self.progress_row, height=8, progress_color="#06D6A0")
+        self.total_prog_bar = ctk.CTkProgressBar(self.progress_row, height=8, progress_color=C_SUCCESS)
         self.total_prog_bar.set(0.0)
         self.total_prog_bar.pack(fill="x", pady=2)
         
@@ -1092,10 +1131,10 @@ class YoutubeDownloaderApp(ctk.CTk):
             btn_row, 
             text="선택된 항목 다운로드 시작", 
             height=38,
-            fg_color="#06D6A0",
-            hover_color="#05B386",
-            text_color="#1E1E2E",
-            font=("Malgun Gothic", 13, "bold"),
+            fg_color=C_SUCCESS,
+            hover_color=C_SUCCESS_HOVER,
+            text_color=C_SURFACE,
+            font=FONT_HEADING,
             command=self.start_selected_download
         )
         self.download_selected_btn.pack(side="left", fill="x", expand=True, padx=(0, 4))
@@ -1104,9 +1143,9 @@ class YoutubeDownloaderApp(ctk.CTk):
             btn_row, 
             text="대기열 전체 다운로드 시작", 
             height=38,
-            fg_color="#3A86FF",
-            hover_color="#2563EB",
-            font=("Malgun Gothic", 13, "bold"),
+            fg_color=C_ACCENT,
+            hover_color=C_ACCENT_HOVER,
+            font=FONT_HEADING,
             command=self.start_all_download
         )
         self.download_all_btn.pack(side="left", fill="x", expand=True, padx=4)
@@ -1115,10 +1154,10 @@ class YoutubeDownloaderApp(ctk.CTk):
             btn_row,
             text="다운로드 중단",
             height=38,
-            fg_color="#4F5D75",
-            hover_color="#3D4A5E",
+            fg_color=C_DISABLED,
+            hover_color=C_HOVER_NEUTRAL,
             state="disabled",
-            font=("Malgun Gothic", 13, "bold"),
+            font=FONT_HEADING,
             command=self.request_stop_download
         )
         self.stop_download_btn.pack(side="right", fill="x", expand=True, padx=(4, 0))
@@ -1132,7 +1171,7 @@ class YoutubeDownloaderApp(ctk.CTk):
         audio_header = ctk.CTkFrame(self.tab_audio, fg_color="transparent")
         audio_header.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
         
-        audio_title = ctk.CTkLabel(audio_header, text="음성 다운로드 완료 목록", font=("Malgun Gothic", 13, "bold"), text_color="#A0A0B0")
+        audio_title = ctk.CTkLabel(audio_header, text="음성 다운로드 완료 목록", font=FONT_HEADING, text_color=C_TEXT_MUTED)
         audio_title.pack(side="left", padx=5, pady=5)
         
         open_audio_folder_btn = ctk.CTkButton(
@@ -1140,9 +1179,9 @@ class YoutubeDownloaderApp(ctk.CTk):
             text="폴더 열기", 
             width=80, 
             height=26,
-            fg_color="#4F46E5",
-            hover_color="#4338CA",
-            font=("Malgun Gothic", 11, "bold"),
+            fg_color=C_INFO,
+            hover_color=C_INFO_HOVER,
+            font=FONT_LABEL_BOLD,
             command=self.open_download_folder
         )
         open_audio_folder_btn.pack(side="right", padx=5)
@@ -1152,9 +1191,9 @@ class YoutubeDownloaderApp(ctk.CTk):
             text="목록 전체 삭제", 
             width=100, 
             height=26,
-            fg_color="#FF007F",
-            hover_color="#CC0066",
-            font=("Malgun Gothic", 11, "bold"),
+            fg_color=C_DANGER,
+            hover_color=C_DANGER_HOVER,
+            font=FONT_LABEL_BOLD,
             command=self.delete_all_completed_audio
         )
         self.delete_all_audio_btn.pack(side="right", padx=5)
@@ -1171,7 +1210,7 @@ class YoutubeDownloaderApp(ctk.CTk):
         video_header = ctk.CTkFrame(self.tab_video, fg_color="transparent")
         video_header.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
         
-        video_title = ctk.CTkLabel(video_header, text="영상 다운로드 완료 목록", font=("Malgun Gothic", 13, "bold"), text_color="#A0A0B0")
+        video_title = ctk.CTkLabel(video_header, text="영상 다운로드 완료 목록", font=FONT_HEADING, text_color=C_TEXT_MUTED)
         video_title.pack(side="left", padx=5, pady=5)
         
         open_video_folder_btn = ctk.CTkButton(
@@ -1179,9 +1218,9 @@ class YoutubeDownloaderApp(ctk.CTk):
             text="폴더 열기", 
             width=80, 
             height=26,
-            fg_color="#4F46E5",
-            hover_color="#4338CA",
-            font=("Malgun Gothic", 11, "bold"),
+            fg_color=C_INFO,
+            hover_color=C_INFO_HOVER,
+            font=FONT_LABEL_BOLD,
             command=self.open_download_folder
         )
         open_video_folder_btn.pack(side="right", padx=5)
@@ -1191,9 +1230,9 @@ class YoutubeDownloaderApp(ctk.CTk):
             text="목록 전체 삭제", 
             width=100, 
             height=26,
-            fg_color="#FF007F",
-            hover_color="#CC0066",
-            font=("Malgun Gothic", 11, "bold"),
+            fg_color=C_DANGER,
+            hover_color=C_DANGER_HOVER,
+            font=FONT_LABEL_BOLD,
             command=self.delete_all_completed_video
         )
         self.delete_all_video_btn.pack(side="right", padx=5)
@@ -1501,7 +1540,7 @@ class YoutubeDownloaderApp(ctk.CTk):
 
         self.stop_requested = True
         # 배경까지 회색으로 바꿔야 '눌리는데 반응 없는 버튼' 으로 보이지 않는다
-        self.stop_download_btn.configure(state="disabled", fg_color="#4F5D75")
+        self.stop_download_btn.configure(state="disabled", fg_color=C_DISABLED)
 
         # 변환(FFmpeg) 단계에서는 progress_hook 이 불리지 않아 플래그만으로는 멈추지 않는다.
         # 실행 중인 자식 ffmpeg 를 직접 종료해야 즉시 중단된다.
@@ -1510,7 +1549,7 @@ class YoutubeDownloaderApp(ctk.CTk):
             self.stop_message = "변환을 중단했습니다. 정리하는 중..."
         else:
             self.stop_message = "중단 요청됨. 현재 곡을 정리하는 중..."
-        self.queue_status_lbl.configure(text=f"대기열 상태: {self.stop_message}", text_color="#FF007F")
+        self.queue_status_lbl.configure(text=f"대기열 상태: {self.stop_message}", text_color=C_DANGER)
 
     def start_selected_download(self):
         if self.batch_running:
@@ -1724,7 +1763,7 @@ class YoutubeDownloaderApp(ctk.CTk):
         message, all_ok = describe_batch_result(
             done, failed, stopped, total=tally.get('total'), unit=unit)
 
-        color = "#06D6A0" if all_ok else ("#FF007F" if failed else "#A0A0B0")
+        color = C_SUCCESS if all_ok else (C_DANGER if failed else C_TEXT_MUTED)
         self.queue_status_lbl.configure(text=f"대기열 결과: {message}", text_color=color)
         self.cur_prog_bar.set(1.0 if all_ok else 0.0)
         self.cur_stats_lbl.configure(text=describe_batch_detail(done, failed, stopped))
@@ -1756,18 +1795,18 @@ class YoutubeDownloaderApp(ctk.CTk):
             # 중단 안내 문구가 100ms 뒤 이 루프에 덮여 사라지던 문제를 막는다
             if self.stop_requested and self.stop_message:
                 self.queue_status_lbl.configure(
-                    text=f"대기열 상태: {self.stop_message}", text_color="#FF007F")
+                    text=f"대기열 상태: {self.stop_message}", text_color=C_DANGER)
             elif status == 'downloading':
                 self.queue_status_lbl.configure(
                     text=f"현재 다운로드 중: {item['title'][:40]}...",
-                    text_color="#3A86FF"
+                    text_color=C_ACCENT
                 )
             elif status == 'converting':
                 # MP4 는 오디오 변환이 아니라 영상 병합이다
                 stage = describe_postprocess_stage(self.active_format)
                 self.queue_status_lbl.configure(
                     text=f"{stage} {item['title'][:34]}...",
-                    text_color="#F77F00"
+                    text_color=C_WARNING
                 )
 
             if status == 'downloading':
@@ -1966,9 +2005,9 @@ class YoutubeDownloaderApp(ctk.CTk):
 
         if locked:
             self.stop_download_btn.configure(
-                state="normal", fg_color="#FF007F", hover_color="#CC0066")
+                state="normal", fg_color=C_DANGER, hover_color=C_DANGER_HOVER)
         else:
-            self.stop_download_btn.configure(state="disabled", fg_color="#4F5D75")
+            self.stop_download_btn.configure(state="disabled", fg_color=C_DISABLED)
 
         # 대기열 항목의 체크박스/제거 버튼도 함께 잠근다
         try:
@@ -2057,7 +2096,7 @@ class YoutubeDownloaderApp(ctk.CTk):
             err_win,
             text="확인",
             width=100,
-            fg_color="#3A86FF",
+            fg_color=C_ACCENT,
             command=close
         )
         ok_btn.pack(side="bottom", pady=(0, 20))
@@ -2065,7 +2104,7 @@ class YoutubeDownloaderApp(ctk.CTk):
         body = ctk.CTkScrollableFrame(err_win, fg_color="transparent")
         body.pack(side="top", expand=True, fill="both", padx=20, pady=(20, 10))
 
-        label = ctk.CTkLabel(body, text=message, font=("Malgun Gothic", 12),
+        label = ctk.CTkLabel(body, text=message, font=FONT_BODY,
                              justify="left", wraplength=width - 90)
         label.pack(expand=True, fill="both")
 
