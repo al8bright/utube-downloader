@@ -6,3 +6,4 @@ dist/
 *.mp3
 *.flac
 .omc/
+.utube_tmp/
