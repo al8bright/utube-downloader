@@ -737,3 +737,136 @@ class TestAlreadyQueuedFeedback:
         gui_app.YoutubeDownloaderApp.add_selected_to_queue(app)
         assert len(app.queue_items) == 2
         assert app.errors == []
+
+
+# ==========================================================================
+# minor 묶음 A: 순수 함수 정밀화
+# ==========================================================================
+class TestVideoIdStrictness:
+    def test_유튜브가_아닌_호스트는_ID를_뽑지_않는다(self):
+        assert gui_app.extract_video_id("https://evil.com/watch?v=n61ULEU7CO0") is None
+        assert gui_app.extract_video_id("https://notyoutube.com/embed/n61ULEU7CO0") is None
+
+    def test_도메인을_포함한_사칭_호스트도_거른다(self):
+        assert gui_app.extract_video_id("https://youtube.com.evil.net/watch?v=n61ULEU7CO0") is None
+
+    def test_서브도메인은_허용한다(self):
+        assert gui_app.extract_video_id("https://m.youtube.com/watch?v=n61ULEU7CO0") == "n61ULEU7CO0"
+        assert gui_app.extract_video_id("https://music.youtube.com/watch?v=n61ULEU7CO0") == "n61ULEU7CO0"
+
+    def test_12자_이상_토큰은_앞_11자로_자르지_않는다(self):
+        assert gui_app.extract_video_id("https://youtu.be/aaaaaaaaaaaaBBB") is None
+
+    def test_양쪽_모두_비어있으면_같은_영상이_아니다(self):
+        assert gui_app.is_same_video("", "") is False
+        assert gui_app.is_same_video(None, None) is False
+        assert gui_app.is_same_video("   ", "") is False
+
+
+class TestBatchResultDetail:
+    def test_예외로_일부만_처리되면_성공이_아니다(self):
+        text, ok = gui_app.describe_batch_result(2, 0, 0, total=5)
+        assert ok is False, "5곡 중 2곡만 처리됐는데 전부 성공으로 보고하면 안 된다"
+
+    def test_전부_처리하고_전부_성공하면_성공이다(self):
+        text, ok = gui_app.describe_batch_result(5, 0, 0, total=5)
+        assert ok is True
+
+    def test_단위를_바꿀_수_있다(self):
+        text, _ = gui_app.describe_batch_result(2, 0, 0, unit="편")
+        assert "2편" in text
+
+    def test_기본_단위는_곡이다(self):
+        text, _ = gui_app.describe_batch_result(2, 0, 0)
+        assert "2곡" in text
+
+
+class TestBatchDetailMessage:
+    def test_실패가_있을_때만_사유_안내를_한다(self):
+        assert "사유" in gui_app.describe_batch_detail(1, 1, 0)
+
+    def test_중단만_있으면_사유_안내를_하지_않는다(self):
+        detail = gui_app.describe_batch_detail(1, 0, 2)
+        assert "사유" not in detail
+        assert "중단" in detail
+
+    def test_전부_성공이면_안내가_없다(self):
+        assert gui_app.describe_batch_detail(3, 0, 0) == ""
+
+
+class TestBatchProgress:
+    def test_전량_실패면_진행바를_채우지_않는다(self):
+        assert gui_app.batch_progress_value(0, 3, 0) == 0.0
+
+    def test_전부_성공이면_가득_채운다(self):
+        assert gui_app.batch_progress_value(3, 0, 0) == 1.0
+
+    def test_일부_성공은_비율만큼만_채운다(self):
+        assert gui_app.batch_progress_value(1, 1, 0) == 0.5
+
+    def test_아무것도_없으면_0이다(self):
+        assert gui_app.batch_progress_value(0, 0, 0) == 0.0
+
+
+# ==========================================================================
+# minor 묶음 B: 잠금과 상태 복구
+# ==========================================================================
+class TestLockedWidgetNames:
+    def test_잠금_대상_위젯_이름이_실제로_존재한다(self):
+        """getattr 기본값 None 때문에 오타가 무증상이 되는 것을 막는 회귀 테스트."""
+        import inspect
+        src = inspect.getsource(gui_app.YoutubeDownloaderApp.set_controls_locked)
+        assert "LOCKED_WIDGETS" in src, "잠금 대상은 상수로 두어야 검증할 수 있다"
+        assert isinstance(gui_app.LOCKED_WIDGETS, tuple)
+        assert len(gui_app.LOCKED_WIDGETS) >= 12
+
+    def test_위젯_이름은_생성부에_모두_존재한다(self):
+        import re as _re
+        src = io.open("gui_app.py", encoding="utf-8").read() if False else None
+        with open("gui_app.py", encoding="utf-8") as fh:
+            code = fh.read()
+        missing = [n for n in gui_app.LOCKED_WIDGETS if f"self.{n} = ctk." not in code]
+        assert missing == [], f"생성되지 않는 위젯 이름: {missing}"
+
+
+class TestStartFailureRecovery:
+    def _app(self):
+        item = {"title": "곡", "url": "https://youtu.be/n61ULEU7CO0",
+                "check_var": FakeVar(True), "status": "waiting"}
+        app = FakeStartApp([item])
+        return app
+
+    def test_스레드_기동_실패시_잠금이_풀린다(self, monkeypatch, tmp_path):
+        app = self._app()
+        app.save_dir_var = FakeVar(str(tmp_path))
+
+        class BoomThread:
+            def __init__(self, **kwargs):
+                pass
+
+            def start(self):
+                raise RuntimeError("스레드 생성 실패")
+
+        monkeypatch.setattr(gui_app.threading, "Thread", BoomThread)
+        gui_app.YoutubeDownloaderApp.start_selected_download(app)
+
+        assert app.batch_running is False, "기동에 실패했는데 실행 중으로 남으면 영구 잠금이다"
+        assert app.locked is False
+        assert app.errors
+
+
+class TestStopButtonAppearance:
+    def test_중단_요청_후_버튼_색이_회색으로_바뀐다(self):
+        calls = []
+
+        class App:
+            batch_running = True
+            stop_requested = False
+            stop_message = None
+            stop_download_btn = types.SimpleNamespace(configure=lambda **k: calls.append(k))
+            queue_status_lbl = types.SimpleNamespace(configure=lambda **k: None)
+
+        gui_app.YoutubeDownloaderApp.request_stop_download(App())
+        states = [c for c in calls if c.get("state") == "disabled"]
+        assert states, "중단 버튼은 비활성화돼야 한다"
+        assert any("fg_color" in c for c in calls), "빨간 배경 그대로면 눌리는 버튼처럼 보인다"
