@@ -3,6 +3,7 @@ import sys
 import re
 import shutil
 import threading
+import time
 import urllib.request
 import webbrowser
 from io import BytesIO
@@ -112,6 +113,23 @@ def describe_batch_result(done, failed, stopped):
     return " · ".join(parts), all_ok
 
 
+def measure_error_dialog(message, wrap_px=340):
+    """메시지 길이에 맞는 알림창 크기를 계산한다. (너비, 높이)
+
+    고정 380x180 이면 실패 사유처럼 긴 문구에서 본문이 잘리고
+    '확인' 버튼이 창 밖으로 밀려 사용자가 창을 닫지 못한다.
+    """
+    text = message or ""
+    lines = 0
+    # 한글은 폭이 넓으므로 대략 24자 기준으로 줄바꿈을 추정한다
+    per_line = max(1, wrap_px // 14)
+    for raw_line in text.split(chr(10)):
+        lines += max(1, -(-len(raw_line) // per_line))
+    width = 420
+    height = 120 + lines * 22
+    return width, max(180, min(height, 560))
+
+
 def describe_postprocess_stage(format_type):
     """후처리 단계 문구. MP4 는 오디오 변환이 아니라 영상 병합이다."""
     if format_type == 'MP4':
@@ -130,6 +148,82 @@ def cleanup_temp_dir(save_dir):
         shutil.rmtree(temp_dir, ignore_errors=True)
     except Exception:
         pass
+
+
+def terminate_child_ffmpeg():
+    """이 프로세스가 띄운 ffmpeg 자식 프로세스를 종료한다.
+
+    yt-dlp 는 후처리에서 ffmpeg 를 블로킹 실행하고 핸들을 밖으로 내주지 않아,
+    변환 구간에서는 progress_hook 이 호출되지 않아 중단 플래그가 먹히지 않는다.
+    라이브러리 내부를 몽키패치하는 대신, 프로세스 스냅샷에서 우리 자식 중
+    ffmpeg 만 찾아 종료한다. 종료되면 yt-dlp 가 예외를 내고 정상 경로로 빠져나온다.
+
+    종료시킨 프로세스 수를 돌려준다.
+    """
+    if sys.platform != 'win32':
+        return 0
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        TH32CS_SNAPPROCESS = 0x00000002
+        PROCESS_TERMINATE = 0x0001
+        INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+
+        class PROCESSENTRY32W(ctypes.Structure):
+            _fields_ = [
+                ('dwSize', wintypes.DWORD),
+                ('cntUsage', wintypes.DWORD),
+                ('th32ProcessID', wintypes.DWORD),
+                ('th32DefaultHeapID', ctypes.POINTER(ctypes.c_ulong)),
+                ('th32ModuleID', wintypes.DWORD),
+                ('cntThreads', wintypes.DWORD),
+                ('th32ParentProcessID', wintypes.DWORD),
+                ('pcPriClassBase', ctypes.c_long),
+                ('dwFlags', wintypes.DWORD),
+                ('szExeFile', wintypes.WCHAR * 260),
+            ]
+
+        k32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        k32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+        k32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+        k32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+        k32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+        k32.OpenProcess.restype = wintypes.HANDLE
+        k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        k32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+        k32.CloseHandle.argtypes = [wintypes.HANDLE]
+
+        snapshot = k32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+        if not snapshot or snapshot == INVALID_HANDLE_VALUE:
+            return 0
+
+        my_pid = os.getpid()
+        targets = []
+        try:
+            entry = PROCESSENTRY32W()
+            entry.dwSize = ctypes.sizeof(PROCESSENTRY32W)
+            ok = k32.Process32FirstW(snapshot, ctypes.byref(entry))
+            while ok:
+                if (entry.th32ParentProcessID == my_pid
+                        and entry.szExeFile.lower().startswith('ffmpeg')):
+                    targets.append(entry.th32ProcessID)
+                entry = PROCESSENTRY32W()
+                entry.dwSize = ctypes.sizeof(PROCESSENTRY32W)
+                ok = k32.Process32NextW(snapshot, ctypes.byref(entry))
+        finally:
+            k32.CloseHandle(snapshot)
+
+        killed = 0
+        for pid in targets:
+            handle = k32.OpenProcess(PROCESS_TERMINATE, False, pid)
+            if handle:
+                if k32.TerminateProcess(handle, 1):
+                    killed += 1
+                k32.CloseHandle(handle)
+        return killed
+    except Exception:
+        return 0
 
 
 def bind_children_to_process_lifetime():
@@ -353,6 +447,7 @@ class ScrollableSearchFrame(ctk.CTkScrollableFrame):
         super().__init__(master, **kwargs)
         self.search_widgets = []
         self.search_results_data = [] # 검색결과 저장용
+        self.render_job = None        # 점진 렌더링 예약 핸들
         self.thumb_executor = ThreadPoolExecutor(max_workers=8) # 썸네일 동시 다운로드 풀 제한 (100개 검색 대비 부하 관리)
         
     def load_thumbnail_async(self, thumb_url, label_widget):
@@ -380,19 +475,43 @@ class ScrollableSearchFrame(ctk.CTkScrollableFrame):
                     label_widget.configure(text="No Image", text_color="#666666")
             label_widget.after(0, set_fail)
 
-    def populate_results(self, results):
+    def cancel_render(self):
+        """진행 중인 점진 렌더링을 취소한다. 새 검색이 들어오면 반드시 호출해야 한다."""
+        if self.render_job is not None:
+            try:
+                self.after_cancel(self.render_job)
+            except Exception:
+                pass
+            self.render_job = None
+
+    def populate_results(self, results, empty_text="검색 결과가 없습니다. 키워드를 입력하고 검색해 주세요."):
+        self.cancel_render()
         for widget in self.search_widgets:
             widget.destroy()
         self.search_widgets.clear()
         self.search_results_data.clear()
-        
+
         if not results:
-            label = ctk.CTkLabel(self, text="검색 결과가 없습니다. 키워드를 입력하고 검색해 주세요.", font=("Malgun Gothic", 13), text_color="#888888")
+            label = ctk.CTkLabel(self, text=empty_text, font=("Malgun Gothic", 13), text_color="#888888")
             label.pack(pady=40)
             self.search_widgets.append(label)
             return
-            
-        for idx, item in enumerate(results):
+
+        # 100건을 한 번에 그리면 위젯 700개를 동기 생성해 UI 가 수 초간 멈춘다.
+        # 한 번에 조금씩 그려 이벤트 루프에 숨 쉴 틈을 준다.
+        self._render_chunk(results, 0)
+
+    def _render_chunk(self, results, start, chunk_size=8):
+        self.render_job = None
+        for idx, item in enumerate(results[start:start + chunk_size], start=start):
+            self._render_row(idx, item)
+
+        next_start = start + chunk_size
+        if next_start < len(results):
+            self.render_job = self.after(1, self._render_chunk, results, next_start, chunk_size)
+
+    def _render_row(self, idx, item):
+        for _once in (0,):
             frame = ctk.CTkFrame(self, fg_color="#1E1E2E", corner_radius=6)
             frame.pack(fill="x", pady=4, padx=5)
             
@@ -622,6 +741,10 @@ class YoutubeDownloaderApp(ctk.CTk):
         self.stop_requested = False
         self.last_error = None
         self.last_batch_tally = None
+        self.stop_message = None
+        self.convert_started_at = None
+        self.convert_pulse = 0
+        self.finished_hook_count = 0
         self.pending_added_during_batch = 0
         self.searching = False
         self.search_generation = 0
@@ -1234,10 +1357,20 @@ class YoutubeDownloaderApp(ctk.CTk):
         self.start_selected_download()
         
     def request_stop_download(self):
-        if self.batch_running:
-            self.stop_requested = True
-            self.queue_status_lbl.configure(text="대기열 상태: 중단 요청 중...", text_color="#FF007F")
-            self.stop_download_btn.configure(state="disabled")
+        if not self.batch_running:
+            return
+
+        self.stop_requested = True
+        self.stop_download_btn.configure(state="disabled")
+
+        # 변환(FFmpeg) 단계에서는 progress_hook 이 불리지 않아 플래그만으로는 멈추지 않는다.
+        # 실행 중인 자식 ffmpeg 를 직접 종료해야 즉시 중단된다.
+        killed = terminate_child_ffmpeg()
+        if killed:
+            self.stop_message = "변환을 중단했습니다. 정리하는 중..."
+        else:
+            self.stop_message = "중단 요청됨. 현재 곡을 정리하는 중..."
+        self.queue_status_lbl.configure(text=f"대기열 상태: {self.stop_message}", text_color="#FF007F")
 
     def start_selected_download(self):
         if self.batch_running:
@@ -1313,6 +1446,8 @@ class YoutubeDownloaderApp(ctk.CTk):
 
                 # 단일 다운로드 수행
                 self.last_error = None
+                self.finished_hook_count = 0
+                self.convert_started_at = None
                 success = self.download_single(item['url'], format_type, quality)
 
                 if success:
@@ -1365,6 +1500,14 @@ class YoutubeDownloaderApp(ctk.CTk):
                     'status': 'downloading'
                 })
             elif d['status'] == 'finished':
+                # MP4 는 영상/음성을 따로 받으므로 이 훅이 두 번 온다.
+                # 첫 번째에서 '변환 중' 으로 바꿔버리면 두 번째 다운로드가 시작되며
+                # 진행률이 100% -> 0% 로 되감겨 보인다. 마지막 스트림에서만 전환한다.
+                self.finished_hook_count += 1
+                if self.format_var.get() == 'MP4' and self.finished_hook_count < 2:
+                    return
+
+                self.convert_started_at = time.time()
                 self.current_download_status.update({
                     'status': 'converting',
                     'percent': 1.0,
@@ -1426,29 +1569,44 @@ class YoutubeDownloaderApp(ctk.CTk):
         if self.batch_running and self.current_download_idx != -1:
             item = self.queue_items[self.current_download_idx]
             status = self.current_download_status['status']
-            
-            if status == 'downloading':
+
+            # 중단 안내 문구가 100ms 뒤 이 루프에 덮여 사라지던 문제를 막는다
+            if self.stop_requested and self.stop_message:
                 self.queue_status_lbl.configure(
-                    text=f"현재 다운로드 중: {item['title'][:40]}...", 
+                    text=f"대기열 상태: {self.stop_message}", text_color="#FF007F")
+            elif status == 'downloading':
+                self.queue_status_lbl.configure(
+                    text=f"현재 다운로드 중: {item['title'][:40]}...",
                     text_color="#3A86FF"
                 )
+            elif status == 'converting':
+                # MP4 는 오디오 변환이 아니라 영상 병합이다
+                stage = describe_postprocess_stage(self.format_var.get())
+                self.queue_status_lbl.configure(
+                    text=f"{stage} {item['title'][:34]}...",
+                    text_color="#F77F00"
+                )
+
+            if status == 'downloading':
                 self.cur_prog_bar.set(self.current_download_status['percent'])
                 self.cur_stats_lbl.configure(
                     text=f"{self.current_download_status['percent']*100:.1f}% | 속도: {self.current_download_status['speed']} | 남은 시간: {self.current_download_status['eta']}"
                 )
-                
             elif status == 'converting':
-                self.queue_status_lbl.configure(
-                    text=f"오디오 음질 변환 중: {item['title'][:40]}...", 
-                    text_color="#F77F00"
+                # 변환 진행률은 알 수 없다. 100% 로 얼려두면 멈춘 것처럼 보이므로
+                # 막대를 좌우로 움직여 살아 있음을 보인다.
+                self.convert_pulse = (getattr(self, 'convert_pulse', 0) + 1) % 40
+                self.cur_prog_bar.set(0.3 + 0.4 * abs(20 - self.convert_pulse) / 20)
+                elapsed = int(time.time() - (self.convert_started_at or time.time()))
+                self.cur_stats_lbl.configure(
+                    text=f"{describe_postprocess_stage(self.format_var.get())} 경과 {elapsed}초"
+                    " · 이 단계는 곡 길이에 따라 수 분 걸릴 수 있습니다."
                 )
-                self.cur_prog_bar.set(1.0)
-                self.cur_stats_lbl.configure(text="변환 작업 진행 중 (FFmpeg)...")
-                
+
             # 전체 진행률 바 업데이트
             self.total_prog_bar.set(self.overall_progress)
             self.overall_status_lbl.configure(text=f"전체 대기열 진행 상황: {self.overall_progress*100:.1f}% 완료")
-            
+
         # 100ms 간격 주기 호출
         self.after(100, self.update_progress_loop)
 
@@ -1657,6 +1815,11 @@ class YoutubeDownloaderApp(ctk.CTk):
         self.stop_requested = True
 
         # 썸네일 워커는 non-daemon 이라 정리하지 않으면 창이 닫힌 뒤에도 프로세스가 남는다
+        # 각각 따로 감싼다. 앞이 실패해도 뒤가 반드시 실행돼야 프로세스가 남지 않는다.
+        try:
+            self.search_scroll.cancel_render()
+        except Exception:
+            pass
         try:
             self.search_scroll.thumb_executor.shutdown(wait=False, cancel_futures=True)
         except Exception:
@@ -1667,23 +1830,32 @@ class YoutubeDownloaderApp(ctk.CTk):
     def show_error(self, message):
         err_win = ctk.CTkToplevel(self)
         err_win.title("알림")
-        err_win.geometry("380x180")
-        err_win.resizable(False, False)
-        
+        width, height = measure_error_dialog(message)
+        err_win.geometry(f"{width}x{height}")
+        err_win.minsize(360, 180)
+        # 잘린 내용을 사용자가 직접 볼 수 있도록 크기 조절을 허용한다
+        err_win.resizable(True, True)
+
         # 모달 제어
         err_win.grab_set()
-        
-        label = ctk.CTkLabel(err_win, text=message, font=("Malgun Gothic", 12), justify="left", wraplength=340)
-        label.pack(expand=True, fill="both", padx=20, pady=20)
-        
+
+        # 확인 버튼이 항상 보이도록 버튼을 먼저 배치하고 본문이 남은 공간을 쓴다
         ok_btn = ctk.CTkButton(
-            err_win, 
-            text="확인", 
-            width=100, 
+            err_win,
+            text="확인",
+            width=100,
             fg_color="#3A86FF",
             command=err_win.destroy
         )
-        ok_btn.pack(pady=(0, 20))
+        ok_btn.pack(side="bottom", pady=(0, 20))
+
+        body = ctk.CTkScrollableFrame(err_win, fg_color="transparent")
+        body.pack(side="top", expand=True, fill="both", padx=20, pady=(20, 10))
+
+        label = ctk.CTkLabel(body, text=message, font=("Malgun Gothic", 12), justify="left", wraplength=340)
+        label.pack(expand=True, fill="both")
+        
+
 
 if __name__ == "__main__":
     app = YoutubeDownloaderApp()

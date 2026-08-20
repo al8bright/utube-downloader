@@ -220,7 +220,13 @@ class FakeClosingApp:
         self.confirm_result = True
         self.confirm_asked = False
         self.executor = FakeExecutor()
-        self.search_scroll = types.SimpleNamespace(thumb_executor=self.executor)
+        self.render_cancelled = False
+
+        def cancel_render():
+            self.render_cancelled = True
+
+        self.search_scroll = types.SimpleNamespace(
+            thumb_executor=self.executor, cancel_render=cancel_render)
 
     def confirm_exit_during_download(self):
         self.confirm_asked = True
@@ -259,6 +265,21 @@ class TestOnClosing:
         gui_app.YoutubeDownloaderApp.on_closing(app)
         assert app.executor.shutdown_calls, "executor.shutdown 이 호출되지 않으면 프로세스가 남는다"
         assert app.executor.shutdown_calls[0]["cancel_futures"] is True
+
+    def test_닫을때_진행중인_렌더링도_취소한다(self):
+        app = FakeClosingApp(batch_running=False)
+        gui_app.YoutubeDownloaderApp.on_closing(app)
+        assert app.render_cancelled is True
+
+    def test_렌더링_취소가_실패해도_워커는_종료된다(self):
+        app = FakeClosingApp(batch_running=False)
+
+        def boom():
+            raise RuntimeError("취소 실패")
+
+        app.search_scroll.cancel_render = boom
+        gui_app.YoutubeDownloaderApp.on_closing(app)
+        assert app.executor.shutdown_calls, "앞 단계 실패로 executor 종료를 건너뛰면 프로세스가 남는다"
 
     def test_취소하면_워커를_종료하지_않는다(self):
         app = FakeClosingApp(batch_running=True)
