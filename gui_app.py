@@ -9,6 +9,12 @@ import customtkinter as ctk
 from PIL import Image, ImageTk
 import yt_dlp
 
+
+def resource_path(relative_path):
+    """PyInstaller 번들과 일반 실행 양쪽에서 리소스 절대 경로를 반환한다."""
+    base_path = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_path, relative_path)
+
 # 시스템 인코딩 및 테마 설정
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
@@ -303,8 +309,9 @@ class YoutubeDownloaderApp(ctk.CTk):
         
         # 윈도우 타이틀바 아이콘 지정
         try:
-            if os.path.exists("youtube_icon.ico"):
-                self.iconbitmap("youtube_icon.ico")
+            icon_file = resource_path("youtube_icon.ico")
+            if os.path.exists(icon_file):
+                self.iconbitmap(icon_file)
         except Exception:
             pass
 
