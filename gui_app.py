@@ -13,202 +13,50 @@ from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
 import yt_dlp
 
-
-def format_duration(seconds):
-    """초를 mm:ss 또는 hh:mm:ss 문자열로 변환한다.
-
-    라이브 방송은 duration 이 None 이고 일부 항목은 float 으로 오므로,
-    변환할 수 없는 값은 예외 대신 기본 표시를 돌려준다.
-    """
-    try:
-        total = int(seconds)
-    except (TypeError, ValueError):
-        return UNKNOWN_TIME
-    if total < 0:
-        return UNKNOWN_TIME
-    mins, secs = divmod(total, 60)
-    hours, mins = divmod(mins, 60)
-    return f"{hours:02d}:{mins:02d}:{secs:02d}" if hours > 0 else f"{mins:02d}:{secs:02d}"
-
-
-def format_eta(seconds):
-    """남은 시간(초)을 mm:ss 문자열로 변환한다.
-
-    yt-dlp 는 eta 를 float 으로 주기도 한다. 표시용 값 하나 때문에
-    다운로드 전체가 실패로 처리되지 않도록 방어한다.
-    """
-    try:
-        total = int(seconds)
-    except (TypeError, ValueError):
-        return UNKNOWN_TIME
-    if total < 0:
-        return UNKNOWN_TIME
-    mins, secs = divmod(total, 60)
-    return f"{mins:02d}:{secs:02d}"
-
-
-def resolve_save_dir(raw_dir):
-    """저장 폴더 경로를 검증한다. (사용할 경로, 유효여부) 를 돌려준다.
-
-    폴더가 아닌 경로(파일, 끊긴 네트워크 드라이브)를 그대로 통과시키면
-    다운로드와 일괄 삭제가 엉뚱한 폴더에서 일어나므로 isdir 로 확인한다.
-    """
-    save_dir = (raw_dir or '').strip()
-    if not save_dir or not os.path.isdir(save_dir):
-        return os.getcwd(), False
-    return save_dir, True
-
-
-# 도메인은 대소문자를 구분하지 않는다. re.I 가 없으면 YouTube.com 같은 링크가
-# 중복 검사를 통째로 빠져나가 같은 영상이 두 번 대기열에 들어간다.
-# 영상 ID 자체는 대소문자를 구분하므로 캡처 그룹에는 영향이 없다.
-# 도메인은 대소문자를 구분하지 않는다. re.I 가 없으면 YouTube.com 같은 링크가
-# 중복 검사를 통째로 빠져나가 같은 영상이 두 번 대기열에 들어간다.
-# 영상 ID 자체는 대소문자를 구분하므로 캡처 그룹에는 영향이 없다.
-#
-# 앵커(_HOST)가 없으면 youtube.com.evil.net 같은 사칭 호스트나
-# 무관한 사이트의 ?v= 파라미터까지 유튜브 영상으로 오인한다.
-# 뒤의 (?![0-9A-Za-z_-]) 는 12자 이상 토큰을 앞 11자로 잘라
-# 서로 다른 URL 을 같은 영상으로 착각하는 것을 막는다.
-_HOST = r'(?:^|\b)(?:[\w-]+\.)*'
-_ID = r'([0-9A-Za-z_-]{11})(?![0-9A-Za-z_-])'
-_VIDEO_ID_PATTERNS = (
-    re.compile(_HOST + r'(?:youtube\.com|youtube-nocookie\.com)/watch\?(?:.*&)?v=' + _ID, re.I),
-    re.compile(_HOST + r'youtu\.be/' + _ID, re.I),
-    re.compile(_HOST + r'(?:youtube\.com|youtube-nocookie\.com)/shorts/' + _ID, re.I),
-    re.compile(_HOST + r'(?:youtube\.com|youtube-nocookie\.com)/embed/' + _ID, re.I),
-    re.compile(_HOST + r'(?:youtube\.com|youtube-nocookie\.com)/live/' + _ID, re.I),
-    re.compile(_HOST + r'(?:youtube\.com|youtube-nocookie\.com)/v/' + _ID, re.I),
+# 패키지로 옮긴 모듈들. gui_app 이름으로 참조하던 곳(테스트·배치 파일)이
+# 그대로 동작하도록 재수출한다.
+from utube_downloader.theme import *  # noqa: F401,F403
+from utube_downloader.theme import tracked, LOCKED_WIDGETS  # noqa: F401
+from utube_downloader.urls import (  # noqa: F401
+    extract_video_id, is_same_video, is_playlist_info,
+)
+from utube_downloader.storage import (  # noqa: F401
+    TEMP_DIR_NAME, resolve_save_dir, escape_ydl_path, cleanup_temp_dir,
+)
+from utube_downloader.formatting import (  # noqa: F401
+    UNKNOWN_TIME, BR, SEARCH_TIMEOUT_MS, SEARCH_INITIAL_TEXT, SEARCH_NO_RESULT_TEXT,
+    format_duration, format_eta, describe_batch_result, describe_batch_detail,
+    batch_progress_value, describe_postprocess_stage, measure_error_dialog,
+    merge_error_messages,
 )
 
 
-def extract_video_id(url):
-    """유튜브 URL 에서 영상 ID 를 뽑는다. 유튜브가 아니면 None."""
-    if not url:
-        return None
-    for pattern in _VIDEO_ID_PATTERNS:
-        found = pattern.search(url)
-        if found:
-            return found.group(1)
-    return None
 
 
-def is_same_video(url_a, url_b):
-    """링크 형태(단축/타임스탬프/재생목록 파라미터)가 달라도 같은 영상인지 판정한다."""
-    id_a = extract_video_id(url_a)
-    id_b = extract_video_id(url_b)
-    if id_a and id_b:
-        return id_a == id_b
-    left = (url_a or '').strip()
-    right = (url_b or '').strip()
-    if not left or not right:
-        # 빈 값끼리 같다고 하면 빈 항목이 서로를 중복으로 막는다
-        return False
-    return left == right
 
 
-def escape_ydl_path(path):
-    """yt-dlp 가 경로의 %VAR% 를 환경변수로 확장하지 못하도록 % 를 이스케이프한다."""
-    return (path or '').replace('%', '%%')
 
 
-def describe_batch_result(done, failed, stopped, total=None, unit="곡"):
-    """배치 결과 문구와 '전부 성공인가' 여부를 돌려준다.
-
-    전량 실패인데 초록색 '완료' 로 보고하던 문제를 막기 위해,
-    성공 여부를 문구와 함께 명시적으로 돌려준다.
-    """
-    parts = []
-    if done:
-        parts.append(f"완료 {done}{unit}")
-    if failed:
-        parts.append(f"실패 {failed}{unit}")
-    if stopped:
-        parts.append(f"중단 {stopped}{unit}")
-
-    if not parts:
-        return "처리한 항목이 없습니다.", False
-
-    all_ok = bool(done) and not failed and not stopped
-    if total is not None and done != total:
-        # 예외로 루프가 중간에 끊기면 집계가 total 에 못 미친다.
-        # 그때 성공으로 보고하면 사용자가 받지 못한 곡을 받았다고 믿는다.
-        all_ok = False
-    return " · ".join(parts), all_ok
 
 
-def describe_batch_detail(done, failed, stopped):
-    """배치 결과의 보조 설명. 실패가 없으면 사유 안내를 하지 않는다."""
-    if failed:
-        return "실패한 항목의 사유는 대기열 목록에서 확인할 수 있습니다."
-    if stopped:
-        return "사용자가 다운로드를 중단했습니다."
-    return ""
 
 
-def batch_progress_value(done, failed, stopped):
-    """전체 진행 바에 채울 값. 성공한 만큼만 채운다.
-
-    실패·중단인데 100% 로 채우면 진행 바 자체가 거짓 보고가 된다.
-    """
-    total = done + failed + stopped
-    if total <= 0:
-        return 0.0
-    return done / total
 
 
-def measure_error_dialog(message):
-    """메시지 길이에 맞는 알림창 크기를 계산한다. (너비, 높이)
-
-    고정 380x180 이면 실패 사유처럼 긴 문구에서 본문이 잘리고
-    '확인' 버튼이 창 밖으로 밀려 사용자가 창을 닫지 못한다.
-    """
-    text = message or ""
-    raw_lines = text.split(chr(10))
-    longest = max((len(line) for line in raw_lines), default=0)
-
-    # 가장 긴 줄에 맞춰 너비를 잡되 상한을 둔다
-    width = min(DIALOG_MAX_WIDTH, max(DIALOG_MIN_WIDTH, longest * DIALOG_CHAR_PX + 80))
-
-    per_line = max(1, (width - 80) // DIALOG_CHAR_PX)
-    lines = sum(max(1, -(-len(line) // per_line)) for line in raw_lines)
-    height = DIALOG_CHROME_PX + lines * DIALOG_LINE_PX
-    return width, max(DIALOG_MIN_HEIGHT, min(height, DIALOG_MAX_HEIGHT))
 
 
-def merge_error_messages(existing, new_message):
-    """이미 떠 있는 알림창에 새 메시지를 덧붙인다.
-
-    알림창을 새로 띄우면 Tk 의 grab 이 앞 창에서 넘어가 모달이 무너지고
-    창이 계속 쌓인다. 하나만 유지하고 내용을 합친다.
-    """
-    old = (existing or "").strip()
-    new = (new_message or "").strip()
-    if not old:
-        return new
-    if not new or new in old:
-        return old
-    return old + BR + BR + ("-" * 20) + BR + BR + new
 
 
-def describe_postprocess_stage(format_type):
-    """후처리 단계 문구. MP4 는 오디오 변환이 아니라 영상 병합이다."""
-    if format_type == 'MP4':
-        return "영상 병합 중 (FFmpeg)..."
-    return "음원 변환 중 (FFmpeg)..."
 
 
-def cleanup_temp_dir(save_dir):
-    """앱이 만든 임시 폴더만 지운다. 사용자 파일에는 손대지 않는다."""
-    if not save_dir:
-        return
-    temp_dir = os.path.join(save_dir, TEMP_DIR_NAME)
-    if not os.path.isdir(temp_dir):
-        return
-    try:
-        shutil.rmtree(temp_dir, ignore_errors=True)
-    except Exception:
-        pass
+
+
+
+
+
+
+
+
 
 
 def terminate_child_ffmpeg():
@@ -385,15 +233,6 @@ def describe_download_error(exc):
     return raw.strip() or "알 수 없는 오류가 발생했습니다."
 
 
-def is_playlist_info(info):
-    """추출 결과가 재생목록/채널인지 판정한다.
-
-    noplaylist 는 watch?v=...&list=... 에서 list 를 떼어낼 뿐,
-    순수 재생목록 URL 에는 효력이 없어 항목 1개가 수백 개를 받게 된다.
-    """
-    if not info:
-        return False
-    return info.get('_type') in ('playlist', 'multi_video')
 
 
 def build_ydl_opts(save_dir, format_type, quality, hook):
@@ -444,105 +283,23 @@ def resource_path(relative_path):
 #   3) 구분은 그림자나 테두리가 아니라 면 색 대비와 여백으로 한다.
 # ---------------------------------------------------------------------------
 
-# 브랜드 유일색
-C_GIALLO = "#ffc000"           # Giallo Vivo — 주 동작 버튼, 진행 바
-C_GIALLO_SHADE = "#917300"     # Giallo Ombra — 호버, 목록 마커
-
-# 표면 (밝기 대비만으로 층을 만든다)
-C_BG = "#202020"               # Carbony Black — 기본 무대
-C_SURFACE = "#181818"          # Carbon Deep — 카드, 행, 보조 버튼
-C_SURFACE_DEEP = "#000000"     # Pure Black — 노랑 위 텍스트, 가장 깊은 면
-C_PEARL = "#ffffff"            # Pearl White
-
-# 중립 램프
-C_GRAPHITE = "#494949"         # 구분, 비활성, 호버
-C_STEEL = "#7d7d7d"            # 보조 텍스트
-C_ASH = "#969696"              # 흐린 텍스트
-
-# ---- 역할 별칭 (위젯 코드는 이 이름만 쓴다) ----
-C_ACCENT = C_GIALLO
-C_ACCENT_HOVER = C_GIALLO_SHADE
-C_SUCCESS = C_PEARL            # 완료 상태 = 색이 아니라 밝기로
-C_SUCCESS_HOVER = C_ASH
-C_DANGER = C_GIALLO_SHADE      # 실패 마커 (브랜드 팔레트 안에서)
-C_DANGER_HOVER = C_GIALLO_SHADE
-C_WARNING = C_STEEL            # 진행 중 = 차분한 중립
-C_INFO = C_SURFACE             # 보조 버튼 = 면 대비로만
-C_INFO_HOVER = C_GRAPHITE
-
-C_SURFACE_MUTED = C_SURFACE
-C_SURFACE_MUTED_HOVER = C_GRAPHITE
-C_DISABLED = C_GRAPHITE
-C_HOVER_NEUTRAL = C_GRAPHITE
-
-C_TEXT = C_PEARL
-C_TEXT_MUTED = C_ASH
-C_TEXT_DIM = C_STEEL
-C_TEXT_FAINT = C_GRAPHITE
-
-# 서체
-# LamboType 은 배포 불가라 Windows 기본 탑재 Bahnschrift(DIN 계열)로 대체한다.
-# 한글은 Bahnschrift 에 글리프가 없어 시스템 폰트로 자동 폴백되므로,
-# 한글이 들어가는 본문에는 맑은 고딕을 그대로 쓴다.
-FONT_FAMILY = "Malgun Gothic"
-FONT_DISPLAY_FAMILY = "Bahnschrift SemiBold Condensed"
-
-FONT_TITLE = (FONT_DISPLAY_FAMILY, 34)
-FONT_HEADING = (FONT_FAMILY, 13, "bold")
-FONT_BODY_BOLD = (FONT_FAMILY, 12, "bold")
-FONT_BODY = (FONT_FAMILY, 12)
-FONT_LABEL_BOLD = (FONT_FAMILY, 11, "bold")
-FONT_LABEL = (FONT_FAMILY, 11)
-FONT_ITEM = (FONT_FAMILY, 13)
-FONT_CAPTION = (FONT_FAMILY, 10)
-
-# 하드 엣지 — 반경 0 은 이 디자인의 비타협 항목이다
-RADIUS_CARD = 0
-RADIUS_BUTTON = 0
-
-# 8px 그리드
-PAD_S = 8
-PAD_M = 16
-PAD_L = 24
 
 
-def tracked(text):
-    """Latin 대문자에 자간을 흉내 낸다.
-
-    LamboType 의 0.023em 트래킹은 Tk 로 표현할 수 없어,
-    영문 제목에 한해 글자 사이에 얇은 공백을 넣어 '설계된' 리듬을 낸다.
-    한글에는 쓰지 않는다 (가독성이 크게 떨어진다).
-    """
-    return " ".join((text or "").upper())
-
-UNKNOWN_TIME = "--:--"
-TEMP_DIR_NAME = ".utube_tmp"  # 변환 전 중간 파일을 격리하는 폴더
-BR = chr(10)  # 대화상자 줄바꿈
-SEARCH_TIMEOUT_MS = 60000  # 응답이 이 시간을 넘기면 검색 잠금을 풀어 준다
-DIALOG_MIN_WIDTH = 380
-DIALOG_MAX_WIDTH = 620
-DIALOG_MIN_HEIGHT = 180
-DIALOG_MAX_HEIGHT = 560
-DIALOG_CHAR_PX = 14      # Malgun Gothic 12pt 한글 한 글자의 대략적인 폭
-DIALOG_LINE_PX = 22      # 한 줄 높이
-DIALOG_CHROME_PX = 130   # 여백 + '확인' 버튼
-
-SEARCH_INITIAL_TEXT = "검색 결과가 없습니다. 키워드를 입력하고 검색해 주세요."
-SEARCH_NO_RESULT_TEXT = "일치하는 영상을 찾지 못했습니다. 다른 키워드로 검색해 보세요."
 
 
-# 다운로드 중 잠글 위젯들. 상수로 두어야 이름 오타를 테스트로 잡을 수 있다.
-LOCKED_WIDGETS = (
-    'download_selected_btn', 'download_all_btn', 'add_queue_btn',
-    'format_select', 'quality_select', 'save_dir_entry',
-    'save_dir_btn', 'direct_add_btn', 'clear_queue_btn',
-    'clear_completed_btn', 'delete_all_audio_btn', 'delete_all_video_btn',
-    'direct_url_entry', 'search_entry',
-)
+
+
+
+
+
+
+
+
+
+
+
 
 # 시스템 인코딩 및 테마 설정
-ctk.set_appearance_mode("Dark")
-ctk.set_default_color_theme("blue")
 
 class ScrollableFileFrame(ctk.CTkScrollableFrame):
     """다운로드 완료 목록을 보여주는 스크롤 프레임"""
