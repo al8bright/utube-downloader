@@ -309,3 +309,106 @@ class TestImports:
     def test_filedialog_가_임포트되어_있다(self):
         assert hasattr(gui_app, "filedialog"), "폴더 변경 버튼이 NameError 로 죽는다"
         assert hasattr(gui_app.filedialog, "askdirectory")
+
+
+# --------------------------------------------------------------------------
+# 영상 ID 추출: 링크 형태가 달라도 같은 영상이면 중복으로 잡아야 한다
+# --------------------------------------------------------------------------
+class TestExtractVideoId:
+    def test_표준_watch_링크(self):
+        assert gui_app.extract_video_id("https://www.youtube.com/watch?v=n61ULEU7CO0") == "n61ULEU7CO0"
+
+    def test_단축_링크(self):
+        assert gui_app.extract_video_id("https://youtu.be/n61ULEU7CO0") == "n61ULEU7CO0"
+
+    def test_타임스탬프가_붙어도_같은_ID(self):
+        assert gui_app.extract_video_id("https://youtu.be/n61ULEU7CO0?t=42") == "n61ULEU7CO0"
+
+    def test_재생목록_파라미터가_붙어도_같은_ID(self):
+        url = "https://www.youtube.com/watch?v=n61ULEU7CO0&list=PLabc&index=3"
+        assert gui_app.extract_video_id(url) == "n61ULEU7CO0"
+
+    def test_shorts_와_embed(self):
+        assert gui_app.extract_video_id("https://youtube.com/shorts/n61ULEU7CO0") == "n61ULEU7CO0"
+        assert gui_app.extract_video_id("https://www.youtube.com/embed/n61ULEU7CO0") == "n61ULEU7CO0"
+
+    def test_유튜브가_아니면_None(self):
+        assert gui_app.extract_video_id("https://example.com/watch?v=abc") is None
+
+    def test_빈값은_None(self):
+        assert gui_app.extract_video_id("") is None
+        assert gui_app.extract_video_id(None) is None
+
+
+class TestIsSameVideo:
+    def test_형태가_달라도_같은_영상이면_참(self):
+        assert gui_app.is_same_video(
+            "https://youtu.be/n61ULEU7CO0?t=42",
+            "https://www.youtube.com/watch?v=n61ULEU7CO0&list=PLx",
+        ) is True
+
+    def test_다른_영상이면_거짓(self):
+        assert gui_app.is_same_video(
+            "https://youtu.be/n61ULEU7CO0", "https://youtu.be/aqz-KE-bpKQ"
+        ) is False
+
+    def test_ID를_못뽑으면_문자열_비교로_떨어진다(self):
+        assert gui_app.is_same_video("https://x.com/a", "https://x.com/a") is True
+        assert gui_app.is_same_video("https://x.com/a", "https://x.com/b") is False
+
+
+# --------------------------------------------------------------------------
+# 저장 경로의 %VAR% 가 환경변수로 치환되면 안 된다
+# --------------------------------------------------------------------------
+class TestPathEscaping:
+    def test_퍼센트가_이스케이프된다(self):
+        assert gui_app.escape_ydl_path(r"D:\Music%USERNAME%") == r"D:\Music%%USERNAME%%"
+
+    def test_퍼센트가_없으면_그대로(self):
+        assert gui_app.escape_ydl_path(r"D:\Music") == r"D:\Music"
+
+    def test_옵션의_paths가_이스케이프된_경로를_쓴다(self):
+        opts = gui_app.build_ydl_opts(r"D:\Music%USERNAME%", "MP3", "320", hook=None)
+        assert "%%USERNAME%%" in opts["paths"]["home"]
+
+
+# --------------------------------------------------------------------------
+# 배치 결과 보고: 전량 실패를 성공으로 보고하면 안 된다
+# --------------------------------------------------------------------------
+class TestBatchResultMessage:
+    def test_전부_성공(self):
+        text, ok = gui_app.describe_batch_result(3, 0, 0)
+        assert ok is True
+        assert "3" in text
+
+    def test_전부_실패면_성공으로_보고하지_않는다(self):
+        text, ok = gui_app.describe_batch_result(0, 3, 0)
+        assert ok is False, "전량 실패인데 성공색으로 표시하면 안 된다"
+        assert "실패" in text
+
+    def test_일부_실패도_성공이_아니다(self):
+        text, ok = gui_app.describe_batch_result(2, 1, 0)
+        assert ok is False
+        assert "2" in text and "1" in text
+
+    def test_중단이_섞이면_중단을_알린다(self):
+        text, ok = gui_app.describe_batch_result(1, 0, 2)
+        assert "중단" in text
+
+    def test_아무것도_안했으면_성공이_아니다(self):
+        text, ok = gui_app.describe_batch_result(0, 0, 0)
+        assert ok is False
+
+
+# --------------------------------------------------------------------------
+# 진행 단계 문구: MP4 인데 '음원 변환 중' 이라고 하면 안 된다
+# --------------------------------------------------------------------------
+class TestStageText:
+    def test_MP4_후처리는_병합으로_표기한다(self):
+        assert "병합" in gui_app.describe_postprocess_stage("MP4")
+
+    def test_MP3_후처리는_음원_변환으로_표기한다(self):
+        assert "변환" in gui_app.describe_postprocess_stage("MP3")
+
+    def test_FLAC도_변환으로_표기한다(self):
+        assert "변환" in gui_app.describe_postprocess_stage("FLAC")

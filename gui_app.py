@@ -1,5 +1,6 @@
 import os
 import sys
+import re
 import shutil
 import threading
 import urllib.request
@@ -55,6 +56,67 @@ def resolve_save_dir(raw_dir):
     if not save_dir or not os.path.isdir(save_dir):
         return os.getcwd(), False
     return save_dir, True
+
+
+_VIDEO_ID_PATTERNS = (
+    re.compile(r'(?:youtube\.com|youtube-nocookie\.com)/watch\?(?:.*&)?v=([\w-]{11})'),
+    re.compile(r'youtu\.be/([\w-]{11})'),
+    re.compile(r'(?:youtube\.com|youtube-nocookie\.com)/shorts/([\w-]{11})'),
+    re.compile(r'(?:youtube\.com|youtube-nocookie\.com)/embed/([\w-]{11})'),
+    re.compile(r'(?:youtube\.com|youtube-nocookie\.com)/live/([\w-]{11})'),
+)
+
+
+def extract_video_id(url):
+    """유튜브 URL 에서 영상 ID 를 뽑는다. 유튜브가 아니면 None."""
+    if not url:
+        return None
+    for pattern in _VIDEO_ID_PATTERNS:
+        found = pattern.search(url)
+        if found:
+            return found.group(1)
+    return None
+
+
+def is_same_video(url_a, url_b):
+    """링크 형태(단축/타임스탬프/재생목록 파라미터)가 달라도 같은 영상인지 판정한다."""
+    id_a = extract_video_id(url_a)
+    id_b = extract_video_id(url_b)
+    if id_a and id_b:
+        return id_a == id_b
+    return (url_a or '').strip() == (url_b or '').strip()
+
+
+def escape_ydl_path(path):
+    """yt-dlp 가 경로의 %VAR% 를 환경변수로 확장하지 못하도록 % 를 이스케이프한다."""
+    return (path or '').replace('%', '%%')
+
+
+def describe_batch_result(done, failed, stopped):
+    """배치 결과 문구와 '전부 성공인가' 여부를 돌려준다.
+
+    전량 실패인데 초록색 '완료' 로 보고하던 문제를 막기 위해,
+    성공 여부를 문구와 함께 명시적으로 돌려준다.
+    """
+    parts = []
+    if done:
+        parts.append(f"완료 {done}곡")
+    if failed:
+        parts.append(f"실패 {failed}곡")
+    if stopped:
+        parts.append(f"중단 {stopped}곡")
+
+    if not parts:
+        return "처리한 항목이 없습니다.", False
+    all_ok = bool(done) and not failed and not stopped
+    return " · ".join(parts), all_ok
+
+
+def describe_postprocess_stage(format_type):
+    """후처리 단계 문구. MP4 는 오디오 변환이 아니라 영상 병합이다."""
+    if format_type == 'MP4':
+        return "영상 병합 중 (FFmpeg)..."
+    return "음원 변환 중 (FFmpeg)..."
 
 
 def cleanup_temp_dir(save_dir):
@@ -186,8 +248,9 @@ def build_ydl_opts(save_dir, format_type, quality, hook):
         'outtmpl': '%(title)s [%(id)s].%(ext)s',
         # 중간 파일(.part/.webm)을 전용 폴더에 두어 저장 폴더가 더럽혀지지 않게 한다
         'paths': {
-            'home': save_dir,
-            'temp': os.path.join(save_dir, TEMP_DIR_NAME),
+            # % 를 이스케이프하지 않으면 폴더 이름의 %VAR% 가 환경변수로 치환된다
+            'home': escape_ydl_path(save_dir),
+            'temp': escape_ydl_path(os.path.join(save_dir, TEMP_DIR_NAME)),
         },
         'noplaylist': True,
         'quiet': True,
@@ -424,11 +487,28 @@ class ScrollableQueueFrame(ctk.CTkScrollableFrame):
     def __init__(self, master, **kwargs):
         super().__init__(master, **kwargs)
         self.queue_widgets = []
+        self.row_controls = []   # 다운로드 중 잠글 체크박스·제거 버튼
+        self.locked = False
+
+    def set_locked(self, locked):
+        """다운로드 중에는 체크박스와 제거 버튼을 눌리지 않게 한다.
+
+        예전에는 눌러도 조용히 무시돼, 사용자가 취소했다고 믿은 곡이 그대로 받아졌다.
+        """
+        self.locked = locked
+        state = "disabled" if locked else "normal"
+        for widget in self.row_controls:
+            try:
+                if widget.winfo_exists():
+                    widget.configure(state=state)
+            except Exception:
+                pass
         
     def populate_queue(self, queue_items, delete_callback):
         for widget in self.queue_widgets:
             widget.destroy()
         self.queue_widgets.clear()
+        self.row_controls.clear()
         
         if not queue_items:
             label = ctk.CTkLabel(self, text="대기열이 비어 있습니다. '검색 및 추가' 탭에서 노래를 추가해 주세요.", font=("Malgun Gothic", 13), text_color="#888888")
@@ -443,6 +523,7 @@ class ScrollableQueueFrame(ctk.CTkScrollableFrame):
             # 체크박스 연결
             chk = ctk.CTkCheckBox(frame, text="", variable=item['check_var'], width=20)
             chk.pack(side="left", padx=(10, 5), pady=10)
+            self.row_controls.append(chk)
             
             # 정보 텍스트 프레임
             info_frame = ctk.CTkFrame(frame, fg_color="transparent")
@@ -505,8 +586,13 @@ class ScrollableQueueFrame(ctk.CTkScrollableFrame):
                 command=lambda index=idx: delete_callback(index)
             )
             del_btn.pack(side="right", padx=(5, 10))
+            self.row_controls.append(del_btn)
             
             self.queue_widgets.append(frame)
+
+        # 목록을 다시 그려도 다운로드 중이면 잠금 상태를 유지한다
+        if self.locked:
+            self.set_locked(True)
 
 
 class YoutubeDownloaderApp(ctk.CTk):
@@ -535,6 +621,10 @@ class YoutubeDownloaderApp(ctk.CTk):
         # 상태 변수들
         self.stop_requested = False
         self.last_error = None
+        self.last_batch_tally = None
+        self.pending_added_during_batch = 0
+        self.searching = False
+        self.search_generation = 0
         self.save_dir_var = ctk.StringVar(value=os.path.normpath(os.getcwd()))
         self.queue_items = []  # 대기열 목록: [{title, url, duration, uploader, check_var, status}]
         self.search_results = []
@@ -657,7 +747,7 @@ class YoutubeDownloaderApp(ctk.CTk):
         self.direct_url_entry.pack(side="left", fill="x", expand=True, padx=5)
         self.direct_url_entry.bind("<Return>", lambda event: self.add_direct_url())
         
-        direct_add_btn = ctk.CTkButton(
+        self.direct_add_btn = ctk.CTkButton(
             direct_add_row, 
             text="대기열 추가", 
             width=90, 
@@ -667,7 +757,7 @@ class YoutubeDownloaderApp(ctk.CTk):
             font=("Malgun Gothic", 11, "bold"),
             command=self.add_direct_url
         )
-        direct_add_btn.pack(side="right", padx=(5, 0))
+        self.direct_add_btn.pack(side="right", padx=(5, 0))
         
         # 저장 폴더 지정 영역 추가
         save_dir_row = ctk.CTkFrame(queue_ctrl_frame, fg_color="transparent")
@@ -683,7 +773,7 @@ class YoutubeDownloaderApp(ctk.CTk):
         )
         self.save_dir_entry.pack(side="left", fill="x", expand=True, padx=5)
         
-        save_dir_btn = ctk.CTkButton(
+        self.save_dir_btn = ctk.CTkButton(
             save_dir_row, 
             text="폴더 변경", 
             width=90, 
@@ -693,7 +783,7 @@ class YoutubeDownloaderApp(ctk.CTk):
             font=("Malgun Gothic", 11, "bold"),
             command=self.browse_save_dir
         )
-        save_dir_btn.pack(side="right", padx=(5, 0))
+        self.save_dir_btn.pack(side="right", padx=(5, 0))
         
         # 설정 1: 포맷 선택 및 음질
         settings_row = ctk.CTkFrame(queue_ctrl_frame, fg_color="transparent")
@@ -736,7 +826,7 @@ class YoutubeDownloaderApp(ctk.CTk):
         )
         self.clear_completed_btn.pack(side="right", padx=(5, 5))
 
-        clear_queue_btn = ctk.CTkButton(
+        self.clear_queue_btn = ctk.CTkButton(
             settings_row, 
             text="대기열 비우기", 
             width=90, 
@@ -746,7 +836,7 @@ class YoutubeDownloaderApp(ctk.CTk):
             font=("Malgun Gothic", 11, "bold"),
             command=self.clear_queue
         )
-        clear_queue_btn.pack(side="right", padx=(5, 0))
+        self.clear_queue_btn.pack(side="right", padx=(5, 0))
         
         # 설정 2: 실시간 진행 바
         self.progress_row = ctk.CTkFrame(queue_ctrl_frame, fg_color="transparent")
@@ -834,7 +924,7 @@ class YoutubeDownloaderApp(ctk.CTk):
         )
         open_audio_folder_btn.pack(side="right", padx=5)
         
-        delete_all_audio_btn = ctk.CTkButton(
+        self.delete_all_audio_btn = ctk.CTkButton(
             audio_header, 
             text="목록 전체 삭제", 
             width=100, 
@@ -844,7 +934,7 @@ class YoutubeDownloaderApp(ctk.CTk):
             font=("Malgun Gothic", 11, "bold"),
             command=self.delete_all_completed_audio
         )
-        delete_all_audio_btn.pack(side="right", padx=5)
+        self.delete_all_audio_btn.pack(side="right", padx=5)
         
         self.scroll_audio_frame = ScrollableFileFrame(self.tab_audio, fg_color="transparent")
         self.scroll_audio_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
@@ -873,7 +963,7 @@ class YoutubeDownloaderApp(ctk.CTk):
         )
         open_video_folder_btn.pack(side="right", padx=5)
         
-        delete_all_video_btn = ctk.CTkButton(
+        self.delete_all_video_btn = ctk.CTkButton(
             video_header, 
             text="목록 전체 삭제", 
             width=100, 
@@ -883,24 +973,41 @@ class YoutubeDownloaderApp(ctk.CTk):
             font=("Malgun Gothic", 11, "bold"),
             command=self.delete_all_completed_video
         )
-        delete_all_video_btn.pack(side="right", padx=5)
+        self.delete_all_video_btn.pack(side="right", padx=5)
         
         self.scroll_video_frame = ScrollableFileFrame(self.tab_video, fg_color="transparent")
         self.scroll_video_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
         
     def start_search(self):
+        # Enter 키(바인딩)는 버튼 비활성화를 우회하므로 플래그로 재진입을 막는다.
+        # 막지 않으면 연타 한 번마다 검색 스레드와 썸네일 작업 100건이 쌓인다.
+        if self.searching:
+            return
+
         query = self.search_entry.get().strip()
         if not query:
             self.show_error("검색 키워드를 입력해 주세요.")
             return
-            
+
+        self.searching = True
+        self.search_generation += 1
+        generation = self.search_generation
         self.search_btn.configure(state="disabled", text="검색 중...")
-        
+
         # 백그라운드 스레드로 검색 요청
-        thread = threading.Thread(target=self.search_thread_target, args=(query,), daemon=True)
+        thread = threading.Thread(
+            target=self.search_thread_target, args=(query, generation), daemon=True)
         thread.start()
-        
-    def search_thread_target(self, query):
+
+    def is_current_search(self, generation):
+        """늦게 끝난 옛 검색이 새 검색 결과를 덮어쓰지 못하게 한다."""
+        return generation == self.search_generation
+
+    def finish_search(self):
+        self.searching = False
+        self.search_btn.configure(state="normal", text="유튜브 검색")
+
+    def search_thread_target(self, query, generation):
         try:
             # yt-dlp를 이용해 동영상을 다운로드 받지 않고 검색만 수행
             ydl_opts = {
@@ -925,24 +1032,31 @@ class YoutubeDownloaderApp(ctk.CTk):
                     'thumbnail': entry.get('thumbnail') or (f"https://img.youtube.com/vi/{entry.get('id')}/hqdefault.jpg" if entry.get('id') else None)
                 })
                 
-            self.after(0, self.on_search_success, results)
+            self.after(0, self.on_search_success, results, generation)
         except Exception as e:
-            self.after(0, self.on_search_failed, str(e))
-            
-    def on_search_success(self, results):
-        self.search_btn.configure(state="normal", text="유튜브 검색")
+            self.after(0, self.on_search_failed, describe_download_error(e), generation)
+
+    def on_search_success(self, results, generation=None):
+        if generation is not None and not self.is_current_search(generation):
+            return  # 이미 새 검색이 시작됐다. 옛 결과는 버린다.
+        self.finish_search()
         self.search_scroll.populate_results(results)
         
-    def on_search_failed(self, err_msg):
-        self.search_btn.configure(state="normal", text="유튜브 검색")
-        self.show_error(f"유튜브 검색 실패:\n{err_msg}")
+    def on_search_failed(self, err_msg, generation=None):
+        if generation is not None and not self.is_current_search(generation):
+            return
+        self.finish_search()
+        self.show_error("유튜브 검색에 실패했습니다." + BR + BR + str(err_msg))
         
     def add_selected_to_queue(self):
         added_any = False
+        added_count = 0
         for item in self.search_scroll.search_results_data:
             if item['check_var'].get():
-                exists = any(q['url'] == item['url'] for q in self.queue_items)
+                # 링크 형태만 다른 같은 영상도 중복으로 잡는다
+                exists = any(is_same_video(q['url'], item['url']) for q in self.queue_items)
                 if not exists:
+                    added_count += 1
                     self.queue_items.append({
                         'title': item['title'],
                         'url': item['url'],
@@ -960,8 +1074,19 @@ class YoutubeDownloaderApp(ctk.CTk):
             return
             
         # 대기열 목록 리빌딩
-        self.queue_scroll.populate_queue(self.queue_items, self.delete_queue_item)
-        
+        self.update_queue_list_ui()
+
+        # 다운로드 중 추가된 항목은 이번 배치에 포함되지 않는다는 사실을 알린다
+        if self.batch_running and added_count:
+            self.pending_added_during_batch += added_count
+            self.show_error(
+                f"{added_count}개를 대기열에 담았습니다."
+                + BR + BR
+                + "지금은 다운로드가 진행 중이라 이번 배치에는 포함되지 않습니다."
+                + BR
+                + "현재 배치가 끝난 뒤 다시 다운로드를 시작해 주세요."
+            )
+
         # 탭 뷰를 다운로드 대기열 탭으로 포커스 이동
         self.tabview.set("다운로드 대기열")
         
@@ -971,8 +1096,8 @@ class YoutubeDownloaderApp(ctk.CTk):
             self.show_error("추가할 유튜브 링크를 입력해 주세요.")
             return
             
-        # 대기열에 이미 존재하는지 검사
-        exists = any(q['url'] == url for q in self.queue_items)
+        # 대기열에 이미 존재하는지 검사 (링크 형태가 달라도 같은 영상이면 중복)
+        exists = any(is_same_video(q['url'], url) for q in self.queue_items)
         if exists:
             self.show_error("이미 대기열에 존재하는 링크입니다.")
             return
@@ -990,6 +1115,16 @@ class YoutubeDownloaderApp(ctk.CTk):
         self.queue_scroll.populate_queue(self.queue_items, self.delete_queue_item)
         self.direct_url_entry.delete(0, 'end')
         
+        if self.batch_running:
+            self.pending_added_during_batch += 1
+            self.show_error(
+                "대기열에 담았습니다."
+                + BR + BR
+                + "지금은 다운로드가 진행 중이라 이번 배치에는 포함되지 않습니다."
+                + BR
+                + "현재 배치가 끝난 뒤 다시 다운로드를 시작해 주세요."
+            )
+
         # 백그라운드 분석 스레드 가동
         thread = threading.Thread(target=self.analyze_direct_url_thread, args=(new_item,), daemon=True)
         thread.start()
@@ -1130,10 +1265,7 @@ class YoutubeDownloaderApp(ctk.CTk):
 
         self.stop_requested = False
         self.batch_running = True
-        self.download_selected_btn.configure(state="disabled")
-        self.download_all_btn.configure(state="disabled")
-        self.add_queue_btn.configure(state="disabled")
-        self.stop_download_btn.configure(state="normal", fg_color="#FF007F", hover_color="#CC0066")
+        self.set_controls_locked(True)
         
         # 백그라운드 스레드에서 순차 다운로드 시작
         thread = threading.Thread(
@@ -1149,11 +1281,17 @@ class YoutubeDownloaderApp(ctk.CTk):
         quality_str = self.quality_var.get()
         quality = quality_str.replace("kbps", "")
         
+        # 성공/실패/중단 개수를 집계해 완료 보고에 넘긴다
+        tally = {'done': 0, 'failed': 0, 'stopped': 0}
+        self.last_batch_tally = tally
+
         # try/finally 가 없으면 예외 한 번에 batch_running 이 True 로 고착되어
         # 앱을 재시작하기 전까지 다운로드를 다시 시작할 수 없다.
         try:
             for num, idx in enumerate(indices_to_download):
                 if self.stop_requested:
+                    # 아직 손대지 않은 나머지 항목도 중단으로 집계한다
+                    tally['stopped'] += len(indices_to_download) - num
                     break
 
                 self.current_download_idx = idx
@@ -1179,12 +1317,15 @@ class YoutubeDownloaderApp(ctk.CTk):
 
                 if success:
                     item['status'] = 'finished'
+                    tally['done'] += 1
                 elif self.stop_requested:
                     # 사용자가 직접 멈춘 것은 오류가 아니다
                     item['status'] = 'stopped'
+                    tally['stopped'] += 1
                 else:
                     item['status'] = 'failed'
                     item['error'] = self.last_error
+                    tally['failed'] += 1
 
                 self.overall_progress = (num + 1) / total_count
                 self.after(0, self.update_queue_list_ui)
@@ -1252,23 +1393,32 @@ class YoutubeDownloaderApp(ctk.CTk):
         self.queue_scroll.populate_queue(self.queue_items, self.delete_queue_item)
         
     def on_batch_download_complete(self):
-        self.download_selected_btn.configure(state="normal")
-        self.download_all_btn.configure(state="normal")
-        self.add_queue_btn.configure(state="normal")
-        self.stop_download_btn.configure(state="disabled", fg_color="#4F5D75")
-        
-        if self.stop_requested:
-            self.queue_status_lbl.configure(text="다운로드 중단됨!", text_color="#FF007F")
-            self.cur_prog_bar.set(0.0)
-            self.cur_stats_lbl.configure(text="사용자가 다운로드를 중단했습니다.")
-            self.stop_requested = False
-        else:
-            self.queue_status_lbl.configure(text="대기열 완료!", text_color="#06D6A0")
-            self.cur_prog_bar.set(1.0)
-            self.cur_stats_lbl.configure(text="")
-            self.total_prog_bar.set(1.0)
-            self.overall_status_lbl.configure(text="전체 진행 상황: 일괄 다운로드 완료!")
-        
+        self.set_controls_locked(False)
+
+        # 성공/실패/중단 개수를 사실대로 보고한다.
+        # 예전에는 stop_requested 만 보고 분기해서 전량 실패도 초록색 '완료' 로 표시했다.
+        tally = getattr(self, 'last_batch_tally', None) or {'done': 0, 'failed': 0, 'stopped': 0}
+        message, all_ok = describe_batch_result(
+            tally.get('done', 0), tally.get('failed', 0), tally.get('stopped', 0))
+
+        color = "#06D6A0" if all_ok else ("#FF007F" if tally.get('failed') else "#A0A0B0")
+        self.queue_status_lbl.configure(text=f"대기열 결과: {message}", text_color=color)
+        self.cur_prog_bar.set(1.0 if all_ok else 0.0)
+        self.cur_stats_lbl.configure(
+            text="" if all_ok else "실패한 항목의 사유는 대기열 목록에서 확인할 수 있습니다.")
+        self.total_prog_bar.set(1.0)
+        self.overall_status_lbl.configure(text=f"전체 진행 상황: {message}")
+        self.stop_requested = False
+
+        if self.pending_added_during_batch:
+            count = self.pending_added_during_batch
+            self.pending_added_during_batch = 0
+            self.show_error(
+                f"다운로드 중에 추가된 {count}개 항목은 이번 배치에 포함되지 않았습니다."
+                + BR + BR
+                + "대기열에 그대로 남아 있으니 '선택 항목 다운로드' 를 다시 눌러 주세요."
+            )
+
         self.refresh_file_list()
         
     def update_progress_loop(self):
@@ -1347,6 +1497,8 @@ class YoutubeDownloaderApp(ctk.CTk):
             self.show_error(f"재생 실패:\n{e}")
             
     def delete_file(self, fullpath):
+        if self.block_if_downloading('파일을 삭제할'):
+            return
         filename = os.path.basename(fullpath)
         dialog = ctk.CTkInputDialog(text=f"정말로 '{filename}' 파일을 삭제하시겠습니까?\n삭제하려면 'yes'를 입력해 주세요.", title="파일 삭제 확인")
         response = dialog.get_input()
@@ -1358,6 +1510,8 @@ class YoutubeDownloaderApp(ctk.CTk):
                 self.show_error(f"파일 삭제 오류:\n{e}")
                 
     def delete_all_completed_audio(self):
+        if self.block_if_downloading('파일을 삭제할'):
+            return
         save_dir, _dir_ok = resolve_save_dir(self.save_dir_var.get())
         audio_files = []
         try:
@@ -1371,9 +1525,10 @@ class YoutubeDownloaderApp(ctk.CTk):
         if not audio_files:
             self.show_error("삭제할 완료 음성 파일이 없습니다.")
             return
-            
+
+        word_count, word_kind = len(audio_files), "음성"
         dialog = ctk.CTkInputDialog(
-            text=f"정말로 지정된 폴더의 모든 완료 음성 파일({len(audio_files)}개)을 영구 삭제하시겠습니까?\n삭제하려면 'yes'를 입력해 주세요.", 
+            text=f"다음 폴더의 {word_count}개 {word_kind} 파일을 영구 삭제합니다.\n{save_dir}\n\n이 폴더의 모든 {word_kind} 파일이 대상입니다. 앱이 받지 않은 파일도 포함됩니다.\n삭제하려면 'yes' 를 입력해 주세요.", 
             title="완료 음성 파일 전체 삭제 확인"
         )
         response = dialog.get_input()
@@ -1394,6 +1549,8 @@ class YoutubeDownloaderApp(ctk.CTk):
                 self.show_error(f"{deleted_count}개 파일 삭제 완료 (일부 실패):\n{err_msg}")
 
     def delete_all_completed_video(self):
+        if self.block_if_downloading('파일을 삭제할'):
+            return
         save_dir, _dir_ok = resolve_save_dir(self.save_dir_var.get())
         video_files = []
         try:
@@ -1407,9 +1564,10 @@ class YoutubeDownloaderApp(ctk.CTk):
         if not video_files:
             self.show_error("삭제할 완료 영상 파일이 없습니다.")
             return
-            
+
+        word_count, word_kind = len(video_files), "영상"
         dialog = ctk.CTkInputDialog(
-            text=f"정말로 지정된 폴더의 모든 완료 영상 파일({len(video_files)}개)을 영구 삭제하시겠습니까?\n삭제하려면 'yes'를 입력해 주세요.", 
+            text=f"다음 폴더의 {word_count}개 {word_kind} 파일을 영구 삭제합니다.\n{save_dir}\n\n이 폴더의 모든 {word_kind} 파일이 대상입니다. 앱이 받지 않은 파일도 포함됩니다.\n삭제하려면 'yes' 를 입력해 주세요.", 
             title="완료 영상 파일 전체 삭제 확인"
         )
         response = dialog.get_input()
@@ -1436,6 +1594,49 @@ class YoutubeDownloaderApp(ctk.CTk):
         except Exception as e:
             self.show_error(f"폴더 열기 실패:\n{e}")
             
+    def block_if_downloading(self, action_text):
+        """다운로드 중에 파일을 건드리면 진행 중인 작업이 깨지므로 막는다."""
+        if self.batch_running:
+            self.show_error(
+                f"다운로드가 진행 중입니다."
+                + BR + BR
+                + f"진행 중에는 {action_text} 수 없습니다. 완료 후 다시 시도해 주세요."
+            )
+            return True
+        return False
+
+    def set_controls_locked(self, locked):
+        """다운로드 중 바뀌면 안 되는 컨트롤을 한 곳에서 잠그고 푼다.
+
+        형식/음질을 도중에 바꾸면 화면 설정과 결과물이 어긋나고,
+        저장 폴더를 바꾸면 한 배치 결과가 두 폴더로 흩어진다.
+        """
+        state = "disabled" if locked else "normal"
+        for widget_name in (
+            'download_selected_btn', 'download_all_btn', 'add_queue_btn',
+            'format_select', 'quality_select', 'save_dir_entry',
+            'save_dir_btn', 'direct_add_btn', 'clear_queue_btn',
+            'clear_completed_btn', 'delete_all_audio_btn', 'delete_all_video_btn',
+        ):
+            widget = getattr(self, widget_name, None)
+            if widget is not None:
+                try:
+                    widget.configure(state=state)
+                except Exception:
+                    pass
+
+        if locked:
+            self.stop_download_btn.configure(
+                state="normal", fg_color="#FF007F", hover_color="#CC0066")
+        else:
+            self.stop_download_btn.configure(state="disabled", fg_color="#4F5D75")
+
+        # 대기열 항목의 체크박스/제거 버튼도 함께 잠근다
+        try:
+            self.queue_scroll.set_locked(locked)
+        except Exception:
+            pass
+
     def confirm_exit_during_download(self):
         """다운로드 진행 중 종료를 사용자에게 확인받는다."""
         return messagebox.askyesno(
