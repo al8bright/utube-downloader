@@ -62,13 +62,23 @@ def resolve_save_dir(raw_dir):
 # 도메인은 대소문자를 구분하지 않는다. re.I 가 없으면 YouTube.com 같은 링크가
 # 중복 검사를 통째로 빠져나가 같은 영상이 두 번 대기열에 들어간다.
 # 영상 ID 자체는 대소문자를 구분하므로 캡처 그룹에는 영향이 없다.
+# 도메인은 대소문자를 구분하지 않는다. re.I 가 없으면 YouTube.com 같은 링크가
+# 중복 검사를 통째로 빠져나가 같은 영상이 두 번 대기열에 들어간다.
+# 영상 ID 자체는 대소문자를 구분하므로 캡처 그룹에는 영향이 없다.
+#
+# 앵커(_HOST)가 없으면 youtube.com.evil.net 같은 사칭 호스트나
+# 무관한 사이트의 ?v= 파라미터까지 유튜브 영상으로 오인한다.
+# 뒤의 (?![0-9A-Za-z_-]) 는 12자 이상 토큰을 앞 11자로 잘라
+# 서로 다른 URL 을 같은 영상으로 착각하는 것을 막는다.
+_HOST = r'(?:^|\b)(?:[\w-]+\.)*'
+_ID = r'([0-9A-Za-z_-]{11})(?![0-9A-Za-z_-])'
 _VIDEO_ID_PATTERNS = (
-    re.compile(r'(?:youtube\.com|youtube-nocookie\.com)/watch\?(?:.*&)?v=([\w-]{11})', re.I),
-    re.compile(r'youtu\.be/([\w-]{11})', re.I),
-    re.compile(r'(?:youtube\.com|youtube-nocookie\.com)/shorts/([\w-]{11})', re.I),
-    re.compile(r'(?:youtube\.com|youtube-nocookie\.com)/embed/([\w-]{11})', re.I),
-    re.compile(r'(?:youtube\.com|youtube-nocookie\.com)/live/([\w-]{11})', re.I),
-    re.compile(r'(?:youtube\.com|youtube-nocookie\.com)/v/([\w-]{11})', re.I),
+    re.compile(_HOST + r'(?:youtube\.com|youtube-nocookie\.com)/watch\?(?:.*&)?v=' + _ID, re.I),
+    re.compile(_HOST + r'youtu\.be/' + _ID, re.I),
+    re.compile(_HOST + r'(?:youtube\.com|youtube-nocookie\.com)/shorts/' + _ID, re.I),
+    re.compile(_HOST + r'(?:youtube\.com|youtube-nocookie\.com)/embed/' + _ID, re.I),
+    re.compile(_HOST + r'(?:youtube\.com|youtube-nocookie\.com)/live/' + _ID, re.I),
+    re.compile(_HOST + r'(?:youtube\.com|youtube-nocookie\.com)/v/' + _ID, re.I),
 )
 
 
@@ -89,7 +99,12 @@ def is_same_video(url_a, url_b):
     id_b = extract_video_id(url_b)
     if id_a and id_b:
         return id_a == id_b
-    return (url_a or '').strip() == (url_b or '').strip()
+    left = (url_a or '').strip()
+    right = (url_b or '').strip()
+    if not left or not right:
+        # 빈 값끼리 같다고 하면 빈 항목이 서로를 중복으로 막는다
+        return False
+    return left == right
 
 
 def escape_ydl_path(path):
@@ -97,7 +112,7 @@ def escape_ydl_path(path):
     return (path or '').replace('%', '%%')
 
 
-def describe_batch_result(done, failed, stopped):
+def describe_batch_result(done, failed, stopped, total=None, unit="곡"):
     """배치 결과 문구와 '전부 성공인가' 여부를 돌려준다.
 
     전량 실패인데 초록색 '완료' 로 보고하던 문제를 막기 위해,
@@ -105,16 +120,41 @@ def describe_batch_result(done, failed, stopped):
     """
     parts = []
     if done:
-        parts.append(f"완료 {done}곡")
+        parts.append(f"완료 {done}{unit}")
     if failed:
-        parts.append(f"실패 {failed}곡")
+        parts.append(f"실패 {failed}{unit}")
     if stopped:
-        parts.append(f"중단 {stopped}곡")
+        parts.append(f"중단 {stopped}{unit}")
 
     if not parts:
         return "처리한 항목이 없습니다.", False
+
     all_ok = bool(done) and not failed and not stopped
+    if total is not None and done != total:
+        # 예외로 루프가 중간에 끊기면 집계가 total 에 못 미친다.
+        # 그때 성공으로 보고하면 사용자가 받지 못한 곡을 받았다고 믿는다.
+        all_ok = False
     return " · ".join(parts), all_ok
+
+
+def describe_batch_detail(done, failed, stopped):
+    """배치 결과의 보조 설명. 실패가 없으면 사유 안내를 하지 않는다."""
+    if failed:
+        return "실패한 항목의 사유는 대기열 목록에서 확인할 수 있습니다."
+    if stopped:
+        return "사용자가 다운로드를 중단했습니다."
+    return ""
+
+
+def batch_progress_value(done, failed, stopped):
+    """전체 진행 바에 채울 값. 성공한 만큼만 채운다.
+
+    실패·중단인데 100% 로 채우면 진행 바 자체가 거짓 보고가 된다.
+    """
+    total = done + failed + stopped
+    if total <= 0:
+        return 0.0
+    return done / total
 
 
 def measure_error_dialog(message, wrap_px=340):
@@ -377,6 +417,15 @@ def resource_path(relative_path):
 UNKNOWN_TIME = "--:--"
 TEMP_DIR_NAME = ".utube_tmp"  # 변환 전 중간 파일을 격리하는 폴더
 BR = chr(10)  # 대화상자 줄바꿈
+
+# 다운로드 중 잠글 위젯들. 상수로 두어야 이름 오타를 테스트로 잡을 수 있다.
+LOCKED_WIDGETS = (
+    'download_selected_btn', 'download_all_btn', 'add_queue_btn',
+    'format_select', 'quality_select', 'save_dir_entry',
+    'save_dir_btn', 'direct_add_btn', 'clear_queue_btn',
+    'clear_completed_btn', 'delete_all_audio_btn', 'delete_all_video_btn',
+    'direct_url_entry', 'search_entry',
+)
 
 # 시스템 인코딩 및 테마 설정
 ctk.set_appearance_mode("Dark")
@@ -1383,7 +1432,8 @@ class YoutubeDownloaderApp(ctk.CTk):
             return
 
         self.stop_requested = True
-        self.stop_download_btn.configure(state="disabled")
+        # 배경까지 회색으로 바꿔야 '눌리는데 반응 없는 버튼' 으로 보이지 않는다
+        self.stop_download_btn.configure(state="disabled", fg_color="#4F5D75")
 
         # 변환(FFmpeg) 단계에서는 progress_hook 이 불리지 않아 플래그만으로는 멈추지 않는다.
         # 실행 중인 자식 ffmpeg 를 직접 종료해야 즉시 중단된다.
@@ -1449,12 +1499,22 @@ class YoutubeDownloaderApp(ctk.CTk):
         }
         
         # 백그라운드 스레드에서 순차 다운로드 시작
-        thread = threading.Thread(
-            target=self.batch_download_loop, 
-            args=(selected_indices, settings),
-            daemon=True
-        )
-        thread.start()
+        try:
+            thread = threading.Thread(
+                target=self.batch_download_loop,
+                args=(selected_indices, settings),
+                daemon=True
+            )
+            thread.start()
+        except Exception as exc:
+            # 기동에 실패했는데 잠금과 batch_running 을 그대로 두면 영구 잠금이 된다
+            self.batch_running = False
+            self.set_controls_locked(False)
+            self.show_error(
+                "다운로드를 시작하지 못했습니다."
+                + BR + BR
+                + str(exc)
+            )
         
     def batch_download_loop(self, indices_to_download, settings):
         total_count = len(indices_to_download)
@@ -1464,7 +1524,7 @@ class YoutubeDownloaderApp(ctk.CTk):
         self.active_format = format_type
         
         # 성공/실패/중단 개수를 집계해 완료 보고에 넘긴다
-        tally = {'done': 0, 'failed': 0, 'stopped': 0}
+        tally = {'done': 0, 'failed': 0, 'stopped': 0, 'total': total_count}
         self.last_batch_tally = tally
 
         # try/finally 가 없으면 예외 한 번에 batch_running 이 True 로 고착되어
@@ -1587,18 +1647,24 @@ class YoutubeDownloaderApp(ctk.CTk):
 
         # 성공/실패/중단 개수를 사실대로 보고한다.
         # 예전에는 stop_requested 만 보고 분기해서 전량 실패도 초록색 '완료' 로 표시했다.
-        tally = getattr(self, 'last_batch_tally', None) or {'done': 0, 'failed': 0, 'stopped': 0}
+        tally = getattr(self, 'last_batch_tally', None) or {}
+        done = tally.get('done', 0)
+        failed = tally.get('failed', 0)
+        stopped = tally.get('stopped', 0)
+        # MP4 는 '곡' 이 아니라 '편' 이다
+        unit = "편" if self.active_format == 'MP4' else "곡"
         message, all_ok = describe_batch_result(
-            tally.get('done', 0), tally.get('failed', 0), tally.get('stopped', 0))
+            done, failed, stopped, total=tally.get('total'), unit=unit)
 
-        color = "#06D6A0" if all_ok else ("#FF007F" if tally.get('failed') else "#A0A0B0")
+        color = "#06D6A0" if all_ok else ("#FF007F" if failed else "#A0A0B0")
         self.queue_status_lbl.configure(text=f"대기열 결과: {message}", text_color=color)
         self.cur_prog_bar.set(1.0 if all_ok else 0.0)
-        self.cur_stats_lbl.configure(
-            text="" if all_ok else "실패한 항목의 사유는 대기열 목록에서 확인할 수 있습니다.")
-        self.total_prog_bar.set(1.0)
+        self.cur_stats_lbl.configure(text=describe_batch_detail(done, failed, stopped))
+        # 성공한 만큼만 채운다. 실패인데 100% 면 진행 바가 거짓말을 한다
+        self.total_prog_bar.set(batch_progress_value(done, failed, stopped))
         self.overall_status_lbl.configure(text=f"전체 진행 상황: {message}")
         self.stop_requested = False
+        self.stop_message = None
 
         if self.pending_added_during_batch:
             count = self.pending_added_during_batch
@@ -1817,12 +1883,7 @@ class YoutubeDownloaderApp(ctk.CTk):
         저장 폴더를 바꾸면 한 배치 결과가 두 폴더로 흩어진다.
         """
         state = "disabled" if locked else "normal"
-        for widget_name in (
-            'download_selected_btn', 'download_all_btn', 'add_queue_btn',
-            'format_select', 'quality_select', 'save_dir_entry',
-            'save_dir_btn', 'direct_add_btn', 'clear_queue_btn',
-            'clear_completed_btn', 'delete_all_audio_btn', 'delete_all_video_btn',
-        ):
+        for widget_name in LOCKED_WIDGETS:
             widget = getattr(self, widget_name, None)
             if widget is not None:
                 try:
