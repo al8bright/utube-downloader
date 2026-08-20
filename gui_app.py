@@ -59,12 +59,16 @@ def resolve_save_dir(raw_dir):
     return save_dir, True
 
 
+# 도메인은 대소문자를 구분하지 않는다. re.I 가 없으면 YouTube.com 같은 링크가
+# 중복 검사를 통째로 빠져나가 같은 영상이 두 번 대기열에 들어간다.
+# 영상 ID 자체는 대소문자를 구분하므로 캡처 그룹에는 영향이 없다.
 _VIDEO_ID_PATTERNS = (
-    re.compile(r'(?:youtube\.com|youtube-nocookie\.com)/watch\?(?:.*&)?v=([\w-]{11})'),
-    re.compile(r'youtu\.be/([\w-]{11})'),
-    re.compile(r'(?:youtube\.com|youtube-nocookie\.com)/shorts/([\w-]{11})'),
-    re.compile(r'(?:youtube\.com|youtube-nocookie\.com)/embed/([\w-]{11})'),
-    re.compile(r'(?:youtube\.com|youtube-nocookie\.com)/live/([\w-]{11})'),
+    re.compile(r'(?:youtube\.com|youtube-nocookie\.com)/watch\?(?:.*&)?v=([\w-]{11})', re.I),
+    re.compile(r'youtu\.be/([\w-]{11})', re.I),
+    re.compile(r'(?:youtube\.com|youtube-nocookie\.com)/shorts/([\w-]{11})', re.I),
+    re.compile(r'(?:youtube\.com|youtube-nocookie\.com)/embed/([\w-]{11})', re.I),
+    re.compile(r'(?:youtube\.com|youtube-nocookie\.com)/live/([\w-]{11})', re.I),
+    re.compile(r'(?:youtube\.com|youtube-nocookie\.com)/v/([\w-]{11})', re.I),
 )
 
 
@@ -1199,6 +1203,15 @@ class YoutubeDownloaderApp(ctk.CTk):
         if not added_any:
             self.show_error("추가할 항목을 1개 이상 선택해 주세요.")
             return
+
+        if not added_count:
+            # 선택은 했지만 전부 이미 대기열에 있는 경우.
+            # 조용히 탭만 넘기면 사용자는 추가된 줄 안다.
+            self.show_error(
+                "선택한 항목이 모두 이미 대기열에 있습니다."
+                + BR + BR
+                + "새로 추가된 곡은 없습니다."
+            )
             
         # 대기열 목록 리빌딩
         self.update_queue_list_ui()
@@ -1276,11 +1289,15 @@ class YoutubeDownloaderApp(ctk.CTk):
                     'title': f"재생목록은 추가할 수 없습니다: {info.get('title', url)}",
                     'uploader': f'영상 {count}개 포함',
                     'status': 'failed',
+                    # 이 항목은 재시도 대상이 되면 안 된다. status 만으로는 걸러지지 않는다.
+                    'blocked': True,
                     'error': (
                         f"재생목록/채널 링크입니다(영상 {count}개). "
                         "개별 영상 링크를 넣거나 검색 탭에서 곡을 선택해 주세요."
                     ),
                 })
+                # Tk 변수 쓰기는 메인 스레드에서 한다
+                self.after(0, item['check_var'].set, False)
                 self.after(0, self.update_queue_list_ui)
                 self.after(0, self.show_error,
                            f"재생목록 링크는 추가할 수 없습니다.\n\n"
@@ -1357,7 +1374,8 @@ class YoutubeDownloaderApp(ctk.CTk):
     def start_all_download(self):
         # 모든 대기열 항목 활성화(체크) 처리 후 시작
         for item in self.queue_items:
-            item['check_var'].set(True)
+            # 차단된 재생목록 항목까지 다시 체크하면 위 가드가 무력해진다
+            item['check_var'].set(not item.get('blocked'))
         self.start_selected_download()
         
     def request_stop_download(self):
@@ -1381,24 +1399,41 @@ class YoutubeDownloaderApp(ctk.CTk):
             self.show_error("이미 다운로드 대기열이 실행 중입니다.")
             return
             
-        selected_indices = [idx for idx, item in enumerate(self.queue_items) if item['check_var'].get() and item['status'] != 'finished']
+        # blocked 는 재생목록처럼 '받으면 안 되는' 항목이다.
+        # status 만 보고 거르면 'failed' 로 남은 재생목록이 재시도 경로로 되살아난다.
+        selected_indices = [
+            idx for idx, item in enumerate(self.queue_items)
+            if item['check_var'].get() and item['status'] != 'finished' and not item.get('blocked')
+        ]
         if not selected_indices:
-            self.show_error("다운로드할(완료되지 않은) 항목을 1개 이상 체크해 주세요.")
+            blocked_count = sum(1 for item in self.queue_items if item.get('blocked'))
+            if blocked_count:
+                self.show_error(
+                    f"받을 수 있는 항목이 없습니다."
+                    + BR + BR
+                    + f"대기열의 {blocked_count}개는 재생목록/채널 링크라 받을 수 없습니다."
+                    + BR
+                    + "개별 영상 링크를 넣거나 검색 탭을 이용해 주세요."
+                )
+            else:
+                self.show_error("다운로드할(완료되지 않은) 항목을 1개 이상 체크해 주세요.")
             return
             
-        # 저장 폴더가 유효하지 않으면 조용히 cwd 로 새는 대신 먼저 알린다
+        # 저장 폴더가 유효하지 않으면 다운로드를 시작하지 않는다.
+        # 안내만 하고 진행하면 파일이 앱 폴더로 조용히 쌓인다.
         resolved, dir_ok = resolve_save_dir(self.save_dir_var.get())
         if not dir_ok:
             self.show_error(
-                "저장 폴더를 찾을 수 없습니다."
+                "저장 폴더를 찾을 수 없어 다운로드를 시작하지 않았습니다."
                 + BR + BR
                 + f"입력된 경로: {self.save_dir_var.get().strip() or '(비어 있음)'}"
-                + BR
-                + f"대신 사용할 폴더: {resolved}"
                 + BR + BR
-                + "폴더를 다시 지정해 주세요."
+                + f"'폴더 변경' 으로 저장 폴더를 지정한 뒤 다시 시작해 주세요."
+                + BR
+                + f"(현재 칸에는 {resolved} 를 대신 넣어 두었습니다)"
             )
             self.save_dir_var.set(os.path.normpath(resolved))
+            return
 
         self.stop_requested = False
         self.batch_running = True
