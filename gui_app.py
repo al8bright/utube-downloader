@@ -23,6 +23,12 @@ from utube_downloader.urls import (  # noqa: F401
 from utube_downloader.storage import (  # noqa: F401
     TEMP_DIR_NAME, resolve_save_dir, escape_ydl_path, cleanup_temp_dir,
 )
+from utube_downloader.winproc import (  # noqa: F401
+    terminate_child_ffmpeg, bind_children_to_process_lifetime, resource_path,
+)
+from utube_downloader.downloader import (  # noqa: F401
+    describe_download_error, build_ydl_opts,
+)
 from utube_downloader.formatting import (  # noqa: F401
     UNKNOWN_TIME, BR, SEARCH_TIMEOUT_MS, SEARCH_INITIAL_TEXT, SEARCH_NO_RESULT_TEXT,
     format_duration, format_eta, describe_batch_result, describe_batch_detail,
@@ -59,219 +65,16 @@ from utube_downloader.formatting import (  # noqa: F401
 
 
 
-def terminate_child_ffmpeg():
-    """이 프로세스가 띄운 ffmpeg 자식 프로세스를 종료한다.
-
-    yt-dlp 는 후처리에서 ffmpeg 를 블로킹 실행하고 핸들을 밖으로 내주지 않아,
-    변환 구간에서는 progress_hook 이 호출되지 않아 중단 플래그가 먹히지 않는다.
-    라이브러리 내부를 몽키패치하는 대신, 프로세스 스냅샷에서 우리 자식 중
-    ffmpeg 만 찾아 종료한다. 종료되면 yt-dlp 가 예외를 내고 정상 경로로 빠져나온다.
-
-    종료시킨 프로세스 수를 돌려준다.
-    """
-    if sys.platform != 'win32':
-        return 0
-    try:
-        import ctypes
-        from ctypes import wintypes
-
-        TH32CS_SNAPPROCESS = 0x00000002
-        PROCESS_TERMINATE = 0x0001
-        INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
-
-        class PROCESSENTRY32W(ctypes.Structure):
-            _fields_ = [
-                ('dwSize', wintypes.DWORD),
-                ('cntUsage', wintypes.DWORD),
-                ('th32ProcessID', wintypes.DWORD),
-                ('th32DefaultHeapID', ctypes.POINTER(ctypes.c_ulong)),
-                ('th32ModuleID', wintypes.DWORD),
-                ('cntThreads', wintypes.DWORD),
-                ('th32ParentProcessID', wintypes.DWORD),
-                ('pcPriClassBase', ctypes.c_long),
-                ('dwFlags', wintypes.DWORD),
-                ('szExeFile', wintypes.WCHAR * 260),
-            ]
-
-        k32 = ctypes.WinDLL('kernel32', use_last_error=True)
-        k32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
-        k32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
-        k32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
-        k32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
-        k32.OpenProcess.restype = wintypes.HANDLE
-        k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
-        k32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
-        k32.CloseHandle.argtypes = [wintypes.HANDLE]
-
-        snapshot = k32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
-        if not snapshot or snapshot == INVALID_HANDLE_VALUE:
-            return 0
-
-        my_pid = os.getpid()
-        targets = []
-        try:
-            entry = PROCESSENTRY32W()
-            entry.dwSize = ctypes.sizeof(PROCESSENTRY32W)
-            ok = k32.Process32FirstW(snapshot, ctypes.byref(entry))
-            while ok:
-                if (entry.th32ParentProcessID == my_pid
-                        and entry.szExeFile.lower().startswith('ffmpeg')):
-                    targets.append(entry.th32ProcessID)
-                entry = PROCESSENTRY32W()
-                entry.dwSize = ctypes.sizeof(PROCESSENTRY32W)
-                ok = k32.Process32NextW(snapshot, ctypes.byref(entry))
-        finally:
-            k32.CloseHandle(snapshot)
-
-        killed = 0
-        for pid in targets:
-            handle = k32.OpenProcess(PROCESS_TERMINATE, False, pid)
-            if handle:
-                if k32.TerminateProcess(handle, 1):
-                    killed += 1
-                k32.CloseHandle(handle)
-        return killed
-    except Exception:
-        return 0
-
-
-def bind_children_to_process_lifetime():
-    """자식 프로세스(ffmpeg)가 이 프로세스보다 오래 살지 못하게 묶는다.
-
-    Windows 는 부모가 죽어도 자식을 종료하지 않고, yt-dlp 의 Popen 은
-    Job Object 도 creationflags 도 지정하지 않는다. 그래서 변환 중 창을 닫으면
-    ffmpeg.exe 가 고아로 남아 계속 돈다. JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE 로
-    현재 프로세스를 Job 에 넣어두면 어떤 경로로 종료되든 자식이 함께 정리된다.
-    """
-    if sys.platform != 'win32':
-        return None
-    try:
-        import ctypes
-        from ctypes import wintypes
-
-        JobObjectExtendedLimitInformation = 9
-        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
-
-        class IO_COUNTERS(ctypes.Structure):
-            _fields_ = [(n, ctypes.c_ulonglong) for n in (
-                'ReadOperationCount', 'WriteOperationCount', 'OtherOperationCount',
-                'ReadTransferCount', 'WriteTransferCount', 'OtherTransferCount')]
-
-        class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
-            _fields_ = [
-                ('PerProcessUserTimeLimit', ctypes.c_int64),
-                ('PerJobUserTimeLimit', ctypes.c_int64),
-                ('LimitFlags', wintypes.DWORD),
-                ('MinimumWorkingSetSize', ctypes.c_size_t),
-                ('MaximumWorkingSetSize', ctypes.c_size_t),
-                ('ActiveProcessLimit', wintypes.DWORD),
-                ('Affinity', ctypes.POINTER(ctypes.c_ulong)),
-                ('PriorityClass', wintypes.DWORD),
-                ('SchedulingClass', wintypes.DWORD),
-            ]
-
-        class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
-            _fields_ = [
-                ('BasicLimitInformation', JOBOBJECT_BASIC_LIMIT_INFORMATION),
-                ('IoInfo', IO_COUNTERS),
-                ('ProcessMemoryLimit', ctypes.c_size_t),
-                ('JobMemoryLimit', ctypes.c_size_t),
-                ('PeakProcessMemoryUsed', ctypes.c_size_t),
-                ('PeakJobMemoryUsed', ctypes.c_size_t),
-            ]
-
-        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
-        # 64비트에서 HANDLE 이 c_int 로 잘리지 않도록 시그니처를 명시한다
-        kernel32.CreateJobObjectW.restype = wintypes.HANDLE
-        kernel32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
-        kernel32.SetInformationJobObject.argtypes = [
-            wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD]
-        kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
-        kernel32.GetCurrentProcess.restype = wintypes.HANDLE
-        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-
-        job = kernel32.CreateJobObjectW(None, None)
-        if not job:
-            return None
-
-        info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
-        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-        if not kernel32.SetInformationJobObject(
-                job, JobObjectExtendedLimitInformation,
-                ctypes.byref(info), ctypes.sizeof(info)):
-            kernel32.CloseHandle(job)
-            return None
-
-        if not kernel32.AssignProcessToJobObject(job, kernel32.GetCurrentProcess()):
-            kernel32.CloseHandle(job)
-            return None
-
-        # 핸들을 살려둬야 Job 이 유지된다. 프로세스 종료 시 닫히며 자식이 정리된다.
-        return job
-    except Exception:
-        return None
-
-
-def describe_download_error(exc):
-    """yt-dlp 예외를 사용자가 조치할 수 있는 한국어 문구로 바꾼다."""
-    raw = str(exc)
-    low = raw.lower()
-    if 'ffmpeg' in low or 'ffprobe' in low:
-        return "FFmpeg 를 찾을 수 없습니다. winget install Gyan.FFmpeg 로 설치한 뒤 다시 시도해 주세요."
-    if 'private video' in low:
-        return "비공개 영상이라 다운로드할 수 없습니다."
-    if 'age' in low and 'restrict' in low:
-        return "연령 제한 영상이라 다운로드할 수 없습니다."
-    if 'unavailable' in low or 'removed' in low:
-        return "삭제되었거나 이용할 수 없는 영상입니다."
-    if 'not available in your country' in low or 'geo' in low and 'block' in low:
-        return "지역 제한으로 차단된 영상입니다."
-    if 'no space' in low or 'disk' in low and 'full' in low:
-        return "저장 공간이 부족합니다."
-    if 'urlopen' in low or 'timed out' in low or 'connection' in low:
-        return "네트워크 연결에 실패했습니다. 인터넷 상태를 확인해 주세요."
-    return raw.strip() or "알 수 없는 오류가 발생했습니다."
 
 
 
 
-def build_ydl_opts(save_dir, format_type, quality, hook):
-    """포맷에 맞는 yt-dlp 옵션을 만든다."""
-    opts = {
-        # 영상 ID 를 붙여야 제목이 같은 다른 영상이 기존 파일을 덮어쓰지 않는다
-        'outtmpl': '%(title)s [%(id)s].%(ext)s',
-        # 중간 파일(.part/.webm)을 전용 폴더에 두어 저장 폴더가 더럽혀지지 않게 한다
-        'paths': {
-            # % 를 이스케이프하지 않으면 폴더 이름의 %VAR% 가 환경변수로 치환된다
-            'home': escape_ydl_path(save_dir),
-            'temp': escape_ydl_path(os.path.join(save_dir, TEMP_DIR_NAME)),
-        },
-        'noplaylist': True,
-        'quiet': True,
-    }
-    if hook is not None:
-        opts['progress_hooks'] = [hook]
-
-    if format_type == 'MP4':
-        opts['format'] = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
-        opts['merge_output_format'] = 'mp4'
-    else:
-        opts['format'] = 'bestaudio/best'
-        postprocessor = {
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': format_type.lower(),
-        }
-        if format_type == 'MP3':
-            # FLAC 은 무손실이라 비트레이트 개념이 없다. '0' 은 의미 없는 값이었다.
-            postprocessor['preferredquality'] = quality
-        opts['postprocessors'] = [postprocessor]
-    return opts
 
 
-def resource_path(relative_path):
-    """PyInstaller 번들과 일반 실행 양쪽에서 리소스 절대 경로를 반환한다."""
-    base_path = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(base_path, relative_path)
+
+
+
+
 
 # ---------------------------------------------------------------------------
 # 디자인 토큰 — design.md (Lamborghini.com 스타일 레퍼런스)
