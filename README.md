@@ -136,9 +136,23 @@ python -m venv .venv
 
 ---
 
+### 3. 테스트 실행
+```powershell
+.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.venv\Scripts\python.exe -m pytest
+```
+테스트는 `tests/` 아래에 모듈별로 나뉘어 있습니다. GUI 창을 띄우지 않고 도는 130건이라 몇 초면 끝납니다.
+
+---
+
 ## 📝 파일 구성 설명
 
-* **`gui_app.py`**: CustomTkinter 기반 GUI 디자인 및 백그라운드 다운로드 큐, 미디어 플레이어 연동 핵심 스크립트.
+* **`gui_app.py`**: 실행 진입점. 실제 구현은 `utube_downloader/` 패키지에 있습니다.
+* **`utube_downloader/`**: 앱 본체.
+  * `app.py` 상태·스레드·생명주기 · `ui.py` 탭 화면 조립 · `widgets/` 목록 부품
+  * `theme.py` 디자인 토큰 · `formatting.py` 표시 문자열 · `urls.py` 링크 해석
+  * `storage.py` 저장 경로 · `downloader.py` yt-dlp 연동 · `winproc.py` 프로세스 관리
+* **`tests/`**: 모듈별 테스트 130건.
 * **`requirements.txt`**: 패키지 의존성 파일 (`customtkinter`, `yt-dlp`, `pyinstaller`, `pillow`).
 * **`run_app.bat`**: 파이썬 확인 → 가상환경 생성 → 의존성 설치 → 실행까지 자동 처리하는 원클릭 런처.
 * **`build_exe.bat`**: 배포용 단일 EXE 자동 빌더 (빌드 환경까지 자동 준비).
