@@ -485,13 +485,21 @@ class FakeSearchFrame:
         self.render_job = None
         self.rendered_rows = []
         self.after_queue = []
+        self.job_seq = 0
 
     def after(self, delay, fn, *args):
-        self.after_queue.append((fn, args))
-        return f"job{len(self.after_queue)}"
+        job = f"job{self.job_seq}"
+        self.job_seq += 1
+        self.after_queue.append((job, fn, args))
+        return job
 
     def after_cancel(self, job):
-        self.after_queue.clear()
+        # 실제 Tk 처럼 지정된 job 만 취소한다.
+        # 큐를 통째로 비우면 취소 테스트가 스텁의 동작만 검증하게 된다.
+        before = len(self.after_queue)
+        self.after_queue[:] = [q for q in self.after_queue if q[0] != job]
+        if len(self.after_queue) == before:
+            raise ValueError(f"알 수 없는 after id: {job}")
 
     # 실제 클래스의 메서드를 그대로 빌려 쓴다
     cancel_render = gui_app.ScrollableSearchFrame.cancel_render
@@ -508,7 +516,7 @@ class FakeSearchFrame:
     def drain(self):
         """예약된 렌더링을 끝까지 실행한다."""
         while self.after_queue:
-            fn, args = self.after_queue.pop(0)
+            _job, fn, args = self.after_queue.pop(0)
             fn(*args)
 
 
@@ -1160,3 +1168,49 @@ class TestSingleDialog:
         src = inspect.getsource(gui_app.YoutubeDownloaderApp.show_error)
         assert "_error_win" in src, "창을 추적하지 않으면 대화상자가 계속 쌓인다"
         assert "merge_error_messages" in src
+
+
+# ==========================================================================
+# minor 묶음 H: 정리와 테스트 품질
+# ==========================================================================
+class TestNoDebugPrints:
+    def test_소스에_print_가_남아있지_않다(self):
+        """--windowed exe 에서는 stdout 이 없어 print 는 흔적조차 남기지 못한다."""
+        with open("gui_app.py", encoding="utf-8") as fh:
+            lines = fh.readlines()
+        offenders = [f"{i}: {ln.strip()}" for i, ln in enumerate(lines, 1)
+                     if "print(" in ln and not ln.strip().startswith("#")]
+        assert offenders == [], f"print 잔존: {offenders}"
+
+
+class TestImportsComplete:
+    def test_filedialog_가_임포트되어_있다(self):
+        assert hasattr(gui_app, "filedialog")
+        assert hasattr(gui_app.filedialog, "askdirectory")
+
+    def test_messagebox_가_임포트되어_있다(self):
+        assert hasattr(gui_app, "messagebox")
+        assert hasattr(gui_app.messagebox, "askyesno")
+
+    def test_필요한_표준_모듈이_모두_있다(self):
+        for name in ("os", "sys", "re", "shutil", "threading", "time"):
+            assert hasattr(gui_app, name), f"{name} 미임포트"
+
+
+class TestFlacQuality:
+    def test_FLAC은_비트레이트_옵션을_넣지_않는다(self, tmp_path):
+        """FLAC 은 무손실이라 preferredquality 가 의미 없다."""
+        opts = gui_app.build_ydl_opts(str(tmp_path), "FLAC", "320", hook=None)
+        pp = opts["postprocessors"][0]
+        assert "preferredquality" not in pp
+
+    def test_MP3는_비트레이트를_유지한다(self, tmp_path):
+        opts = gui_app.build_ydl_opts(str(tmp_path), "MP3", "256", hook=None)
+        assert opts["postprocessors"][0]["preferredquality"] == "256"
+
+
+class TestNoUnusedState:
+    def test_사용하지_않는_search_results_가_없다(self):
+        with open("gui_app.py", encoding="utf-8") as fh:
+            code = fh.read()
+        assert "self.search_results = []" not in code, "실제 검색 상태와 혼동을 준다"
