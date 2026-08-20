@@ -417,6 +417,10 @@ def resource_path(relative_path):
 UNKNOWN_TIME = "--:--"
 TEMP_DIR_NAME = ".utube_tmp"  # 변환 전 중간 파일을 격리하는 폴더
 BR = chr(10)  # 대화상자 줄바꿈
+SEARCH_TIMEOUT_MS = 60000  # 응답이 이 시간을 넘기면 검색 잠금을 풀어 준다
+SEARCH_INITIAL_TEXT = "검색 결과가 없습니다. 키워드를 입력하고 검색해 주세요."
+SEARCH_NO_RESULT_TEXT = "일치하는 영상을 찾지 못했습니다. 다른 키워드로 검색해 보세요."
+
 
 # 다운로드 중 잠글 위젯들. 상수로 두어야 이름 오타를 테스트로 잡을 수 있다.
 LOCKED_WIDGETS = (
@@ -537,7 +541,7 @@ class ScrollableSearchFrame(ctk.CTkScrollableFrame):
                 pass
             self.render_job = None
 
-    def populate_results(self, results, empty_text="검색 결과가 없습니다. 키워드를 입력하고 검색해 주세요."):
+    def populate_results(self, results, empty_text=SEARCH_INITIAL_TEXT):
         self.cancel_render()
         for widget in self.search_widgets:
             widget.destroy()
@@ -567,82 +571,91 @@ class ScrollableSearchFrame(ctk.CTkScrollableFrame):
 
     def _render_chunk(self, results, start, chunk_size=8):
         self.render_job = None
+
+        # 새 검색이 데이터를 비운 뒤 낡은 청크가 돌면 인덱스가 어긋난다.
+        # 취소가 한 박자 늦을 수 있으므로 여기서도 확인한다.
+        if len(self.search_results_data) != len(results):
+            return
+
         for idx, item in enumerate(results[start:start + chunk_size], start=start):
-            self._render_row(idx, item)
+            try:
+                self._render_row(idx, item)
+            except Exception:
+                # 한 행의 실패로 나머지 결과가 통째로 사라지면 안 된다
+                pass
 
         next_start = start + chunk_size
         if next_start < len(results):
             self.render_job = self.after(1, self._render_chunk, results, next_start, chunk_size)
 
     def _render_row(self, idx, item):
-        for _once in (0,):
-            frame = ctk.CTkFrame(self, fg_color="#1E1E2E", corner_radius=6)
-            frame.pack(fill="x", pady=4, padx=5)
+        frame = ctk.CTkFrame(self, fg_color="#1E1E2E", corner_radius=6)
+        frame.pack(fill="x", pady=4, padx=5)
             
-            # populate_results 에서 미리 만들어 둔 체크 변수를 재사용한다
-            check_var = self.search_results_data[idx]['check_var']
-            chk = ctk.CTkCheckBox(frame, text="", variable=check_var, width=20)
-            chk.pack(side="left", padx=(10, 5), pady=10)
+        # populate_results 에서 미리 만들어 둔 체크 변수를 재사용한다
+        check_var = self.search_results_data[idx]['check_var']
+        chk = ctk.CTkCheckBox(frame, text="", variable=check_var, width=20)
+        chk.pack(side="left", padx=(10, 5), pady=10)
             
-            # 썸네일 이미지 라벨 (플레이스홀더 상태로 선설정)
-            thumbnail_lbl = ctk.CTkLabel(
-                frame, 
-                text="로딩 중...", 
-                width=80, 
-                height=45, 
-                fg_color="#141421", 
-                font=("Malgun Gothic", 10), 
-                text_color="#888888"
-            )
-            thumbnail_lbl.pack(side="left", padx=5, pady=5)
+        # 썸네일 이미지 라벨 (플레이스홀더 상태로 선설정)
+        thumbnail_lbl = ctk.CTkLabel(
+            frame, 
+            text="로딩 중...", 
+            width=80, 
+            height=45, 
+            fg_color="#141421", 
+            font=("Malgun Gothic", 10), 
+            text_color="#888888"
+        )
+        thumbnail_lbl.pack(side="left", padx=5, pady=5)
             
-            # 바로 재생 버튼 (우측 고정 점유를 위해 info_frame보다 먼저 pack)
-            play_btn = ctk.CTkButton(
-                frame,
-                text="▶ 재생",
-                width=60,
-                height=26,
-                fg_color="#3A86FF",
-                hover_color="#2563EB",
-                font=("Malgun Gothic", 11, "bold"),
-                command=lambda url=item['url']: webbrowser.open(url)
-            )
-            play_btn.pack(side="right", padx=(5, 10), pady=10)
+        # 바로 재생 버튼 (우측 고정 점유를 위해 info_frame보다 먼저 pack)
+        play_btn = ctk.CTkButton(
+            frame,
+            text="▶ 재생",
+            width=60,
+            height=26,
+            fg_color="#3A86FF",
+            hover_color="#2563EB",
+            font=("Malgun Gothic", 11, "bold"),
+            command=lambda url=item['url']: webbrowser.open(url)
+        )
+        play_btn.pack(side="right", padx=(5, 10), pady=10)
             
-            # 제목 및 정보 텍스트 결합 프레임 (남은 공간을 유동적으로 사용)
-            info_frame = ctk.CTkFrame(frame, fg_color="transparent")
-            info_frame.pack(side="left", fill="x", expand=True, padx=10, pady=5)
+        # 제목 및 정보 텍스트 결합 프레임 (남은 공간을 유동적으로 사용)
+        info_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        info_frame.pack(side="left", fill="x", expand=True, padx=10, pady=5)
             
-            title_lbl = ctk.CTkLabel(
-                info_frame, 
-                text=item['title'], 
-                anchor="w", 
-                font=("Malgun Gothic", 12, "bold"), 
-                text_color="#E0E0E6",
-                justify="left",
-                wraplength=420  # 제목이 너무 길 경우 겹치지 않고 줄바꿈되도록 wraplength 지정
-            )
-            title_lbl.pack(fill="x", anchor="w")
+        title_lbl = ctk.CTkLabel(
+            info_frame, 
+            text=item['title'], 
+            anchor="w", 
+            font=("Malgun Gothic", 12, "bold"), 
+            text_color="#E0E0E6",
+            justify="left",
+            wraplength=420  # 제목이 너무 길 경우 겹치지 않고 줄바꿈되도록 wraplength 지정
+        )
+        title_lbl.pack(fill="x", anchor="w")
             
-            sub_lbl = ctk.CTkLabel(
-                info_frame, 
-                text=f"채널: {item['uploader']} | 길이: {item['duration']}", 
-                anchor="w", 
-                font=("Malgun Gothic", 11), 
-                text_color="#888888"
-            )
-            sub_lbl.pack(fill="x", anchor="w")
+        sub_lbl = ctk.CTkLabel(
+            info_frame, 
+            text=f"채널: {item['uploader']} | 길이: {item['duration']}", 
+            anchor="w", 
+            font=("Malgun Gothic", 11), 
+            text_color="#888888"
+        )
+        sub_lbl.pack(fill="x", anchor="w")
             
-            # 비동기 썸네일 다운로드 시작 (ThreadPoolExecutor로 부하 분산)
-            thumb_url = item.get('thumbnail')
-            self.thumb_executor.submit(
-                self.load_thumbnail_async, 
-                thumb_url, 
-                thumbnail_lbl
-            )
+        # 비동기 썸네일 다운로드 시작 (ThreadPoolExecutor로 부하 분산)
+        thumb_url = item.get('thumbnail')
+        self.thumb_executor.submit(
+            self.load_thumbnail_async, 
+            thumb_url, 
+            thumbnail_lbl
+        )
             
-            # 검색결과 데이터 수집
-            self.search_widgets.append(frame)
+        # 검색결과 데이터 수집
+        self.search_widgets.append(frame)
 
     def get_selected_items(self):
         selected = []
@@ -1162,6 +1175,11 @@ class YoutubeDownloaderApp(ctk.CTk):
         # Enter 키(바인딩)는 버튼 비활성화를 우회하므로 플래그로 재진입을 막는다.
         # 막지 않으면 연타 한 번마다 검색 스레드와 썸네일 작업 100건이 쌓인다.
         if self.searching:
+            self.show_error(
+                "이미 검색이 진행 중입니다."
+                + BR + BR
+                + "결과가 나온 뒤에 다시 검색해 주세요."
+            )
             return
 
         query = self.search_entry.get().strip()
@@ -1174,10 +1192,18 @@ class YoutubeDownloaderApp(ctk.CTk):
         generation = self.search_generation
         self.search_btn.configure(state="disabled", text="검색 중...")
 
+        # 응답이 영영 안 오면 검색이 영구히 막히므로 안전장치를 건다
+        self.after(SEARCH_TIMEOUT_MS, self.on_search_timeout, generation)
+
         # 백그라운드 스레드로 검색 요청
         thread = threading.Thread(
             target=self.search_thread_target, args=(query, generation), daemon=True)
-        thread.start()
+        try:
+            thread.start()
+        except Exception as exc:
+            # 스레드 기동 실패만 다룬다. 그 밖의 오류는 삼키지 않고 드러낸다.
+            self.finish_search()
+            self.show_error("검색을 시작하지 못했습니다." + BR + BR + str(exc))
 
     def is_current_search(self, generation):
         """늦게 끝난 옛 검색이 새 검색 결과를 덮어쓰지 못하게 한다."""
@@ -1186,6 +1212,17 @@ class YoutubeDownloaderApp(ctk.CTk):
     def finish_search(self):
         self.searching = False
         self.search_btn.configure(state="normal", text="유튜브 검색")
+
+    def on_search_timeout(self, generation):
+        """응답이 없는 검색의 잠금을 풀어 준다. 현재 검색일 때만 동작한다."""
+        if not self.searching or not self.is_current_search(generation):
+            return
+        self.finish_search()
+        self.show_error(
+            "검색 응답이 없어 중단했습니다."
+            + BR + BR
+            + "네트워크 상태를 확인한 뒤 다시 시도해 주세요."
+        )
 
     def search_thread_target(self, query, generation):
         try:
@@ -1217,15 +1254,16 @@ class YoutubeDownloaderApp(ctk.CTk):
             self.after(0, self.on_search_failed, describe_download_error(e), generation)
 
     def on_search_success(self, results, generation=None):
+        # 세대가 어긋나도 잠금은 반드시 푼다. 안 그러면 검색이 영구히 막힌다.
+        self.finish_search()
         if generation is not None and not self.is_current_search(generation):
             return  # 이미 새 검색이 시작됐다. 옛 결과는 버린다.
-        self.finish_search()
-        self.search_scroll.populate_results(results)
+        self.search_scroll.populate_results(results, empty_text=SEARCH_NO_RESULT_TEXT)
         
     def on_search_failed(self, err_msg, generation=None):
+        self.finish_search()
         if generation is not None and not self.is_current_search(generation):
             return
-        self.finish_search()
         self.show_error("유튜브 검색에 실패했습니다." + BR + BR + str(err_msg))
         
     def add_selected_to_queue(self):
@@ -1499,12 +1537,12 @@ class YoutubeDownloaderApp(ctk.CTk):
         }
         
         # 백그라운드 스레드에서 순차 다운로드 시작
+        thread = threading.Thread(
+            target=self.batch_download_loop,
+            args=(selected_indices, settings),
+            daemon=True
+        )
         try:
-            thread = threading.Thread(
-                target=self.batch_download_loop,
-                args=(selected_indices, settings),
-                daemon=True
-            )
             thread.start()
         except Exception as exc:
             # 기동에 실패했는데 잠금과 batch_running 을 그대로 두면 영구 잠금이 된다

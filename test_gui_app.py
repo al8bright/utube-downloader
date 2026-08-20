@@ -870,3 +870,160 @@ class TestStopButtonAppearance:
         states = [c for c in calls if c.get("state") == "disabled"]
         assert states, "중단 버튼은 비활성화돼야 한다"
         assert any("fg_color" in c for c in calls), "빨간 배경 그대로면 눌리는 버튼처럼 보인다"
+
+
+# ==========================================================================
+# minor 묶음 C: 검색 견고성
+# ==========================================================================
+class FakeSearchApp:
+    def __init__(self, query="키워드"):
+        self.searching = False
+        self.search_generation = 0
+        self.search_btn_state = {}
+        self.search_btn = types.SimpleNamespace(
+            configure=lambda **k: self.search_btn_state.update(k))
+        self.search_entry = types.SimpleNamespace(get=lambda: query)
+        self.errors = []
+        self.after_calls = []
+        self.search_scroll = types.SimpleNamespace(populate_results=lambda *a, **k: None)
+
+    def show_error(self, msg):
+        self.errors.append(msg)
+
+    def search_thread_target(self, query, generation):
+        pass
+
+    def after(self, delay, fn=None, *args):
+        self.after_calls.append((delay, fn, args))
+        return f"job{len(self.after_calls)}"
+
+    def after_cancel(self, job):
+        pass
+
+    is_current_search = gui_app.YoutubeDownloaderApp.is_current_search
+    finish_search = gui_app.YoutubeDownloaderApp.finish_search
+    on_search_timeout = gui_app.YoutubeDownloaderApp.on_search_timeout
+
+
+class TestSearchRobustness:
+    def _start(self, app, monkeypatch, thread_cls=None):
+        class OkThread:
+            def __init__(self, **kwargs):
+                pass
+
+            def start(self):
+                pass
+
+        monkeypatch.setattr(gui_app.threading, "Thread", thread_cls or OkThread)
+        gui_app.YoutubeDownloaderApp.start_search(app)
+
+    def test_검색_중_재입력은_안내를_준다(self, monkeypatch):
+        app = FakeSearchApp()
+        self._start(app, monkeypatch)
+        assert app.searching is True
+        app.errors.clear()
+        gui_app.YoutubeDownloaderApp.start_search(app)
+        assert app.errors, "아무 피드백 없이 무시하면 사용자는 고장으로 느낀다"
+
+    def test_스레드_기동_실패시_검색_상태가_복구된다(self, monkeypatch):
+        app = FakeSearchApp()
+
+        class BoomThread:
+            def __init__(self, **kwargs):
+                pass
+
+            def start(self):
+                raise RuntimeError("기동 실패")
+
+        self._start(app, monkeypatch, BoomThread)
+        assert app.searching is False, "복구하지 않으면 검색이 영영 막힌다"
+        assert app.search_btn_state.get("state") == "normal"
+        assert app.errors
+
+    def test_세대가_어긋나도_검색_잠금은_풀린다(self):
+        app = FakeSearchApp()
+        app.searching = True
+        app.search_generation = 9
+        gui_app.YoutubeDownloaderApp.on_search_success(app, [], generation=3)
+        assert app.searching is False, "가드가 발동해도 버튼이 영구 잠기면 안 된다"
+
+    def test_타임아웃이_예약된다(self, monkeypatch):
+        app = FakeSearchApp()
+        self._start(app, monkeypatch)
+        delays = [d for d, _fn, _a in app.after_calls]
+        assert any(d >= 10000 for d in delays), "응답이 없으면 풀어줄 안전장치가 필요하다"
+
+    def test_타임아웃이_현재_검색만_해제한다(self):
+        app = FakeSearchApp()
+        app.searching = True
+        app.search_generation = 4
+        gui_app.YoutubeDownloaderApp.on_search_timeout(app, 2)   # 낡은 세대
+        assert app.searching is True
+        gui_app.YoutubeDownloaderApp.on_search_timeout(app, 4)   # 현재 세대
+        assert app.searching is False
+        assert app.errors
+
+
+# ==========================================================================
+# minor 묶음 D: 렌더링 견고성
+# ==========================================================================
+class TestRenderRobustness:
+    def _results(self, n):
+        return [{"title": f"곡{i}", "url": f"u{i}", "duration": "03:00",
+                 "uploader": "ch", "thumbnail": None} for i in range(n)]
+
+    def _frame(self, monkeypatch):
+        frame = FakeSearchFrame()
+        monkeypatch.setattr(gui_app.ctk, "BooleanVar", lambda value=False: {"v": value})
+        return frame
+
+    def test_한_행이_실패해도_나머지가_그려진다(self, monkeypatch):
+        frame = self._frame(monkeypatch)
+        failed = []
+
+        def flaky(idx, item):
+            if idx == 3:
+                failed.append(idx)
+                raise RuntimeError("이 행만 실패")
+            frame.rendered_rows.append(idx)
+            frame.search_widgets.append(FakeSearchFrame.Row())
+
+        frame._render_row = flaky
+        gui_app.ScrollableSearchFrame.populate_results(frame, self._results(10))
+        frame.drain()
+        assert failed == [3]
+        assert len(frame.rendered_rows) == 9, "한 행 실패로 나머지가 사라지면 안 된다"
+
+    def test_데이터가_비워지면_렌더링을_멈춘다(self, monkeypatch):
+        """새 검색이 데이터를 지운 뒤 낡은 청크가 돌면 IndexError 가 난다."""
+        frame = self._frame(monkeypatch)
+        gui_app.ScrollableSearchFrame.populate_results(frame, self._results(50))
+        frame.search_results_data.clear()          # 새 검색이 지운 상황을 흉내
+        frame.drain()                              # 예약된 낡은 청크 실행
+        # 예외 없이 조용히 멈춰야 한다
+
+    def test_결과_0건_안내는_초기_안내와_다르다(self, monkeypatch):
+        frame = self._frame(monkeypatch)
+        texts = []
+
+        class FakeLabel:
+            def __init__(self, *a, **k):
+                texts.append(k.get("text", ""))
+
+            def pack(self, **k):
+                pass
+
+        monkeypatch.setattr(gui_app.ctk, "CTkLabel", FakeLabel)
+        gui_app.ScrollableSearchFrame.populate_results(
+            frame, [], empty_text=gui_app.SEARCH_NO_RESULT_TEXT)
+        assert texts and "일치하는" in texts[0], "초기 안내와 같으면 결과 없음을 구분할 수 없다"
+
+    def test_검색_성공_경로가_결과없음_문구를_넘긴다(self):
+        import inspect
+        src = inspect.getsource(gui_app.YoutubeDownloaderApp.on_search_success)
+        assert "SEARCH_NO_RESULT_TEXT" in src, "empty_text 를 넘기지 않으면 인자가 죽은 코드가 된다"
+
+    def test_렌더링_함수에_한번만_도는_반복문_꼼수가_없다(self):
+        import inspect
+        src = inspect.getsource(gui_app.ScrollableSearchFrame._render_row)
+        assert "_once" not in src, "for _once in (0,) 는 continue/break 를 넣는 순간 조용히 오작동한다"
