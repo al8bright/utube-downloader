@@ -829,11 +829,15 @@ class TestLockedWidgetNames:
         assert len(gui_app.LOCKED_WIDGETS) >= 12
 
     def test_위젯_이름은_생성부에_모두_존재한다(self):
-        import re as _re
-        src = io.open("gui_app.py", encoding="utf-8").read() if False else None
-        with open("gui_app.py", encoding="utf-8") as fh:
-            code = fh.read()
-        missing = [n for n in gui_app.LOCKED_WIDGETS if f"self.{n} = ctk." not in code]
+        """오타나 이름 변경이 getattr 기본값 None 뒤에 숨지 않도록 소스에서 확인한다."""
+        import glob
+
+        code = ""
+        for path in ["gui_app.py"] + glob.glob("utube_downloader/**/*.py", recursive=True):
+            with open(path, encoding="utf-8") as fh:
+                code += fh.read()
+        missing = [n for n in gui_app.LOCKED_WIDGETS
+                   if f"self.{n} = ctk." not in code and f"app.{n} = ctk." not in code]
         assert missing == [], f"생성되지 않는 위젯 이름: {missing}"
 
 
