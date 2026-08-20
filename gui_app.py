@@ -157,21 +157,38 @@ def batch_progress_value(done, failed, stopped):
     return done / total
 
 
-def measure_error_dialog(message, wrap_px=340):
+def measure_error_dialog(message):
     """메시지 길이에 맞는 알림창 크기를 계산한다. (너비, 높이)
 
     고정 380x180 이면 실패 사유처럼 긴 문구에서 본문이 잘리고
     '확인' 버튼이 창 밖으로 밀려 사용자가 창을 닫지 못한다.
     """
     text = message or ""
-    lines = 0
-    # 한글은 폭이 넓으므로 대략 24자 기준으로 줄바꿈을 추정한다
-    per_line = max(1, wrap_px // 14)
-    for raw_line in text.split(chr(10)):
-        lines += max(1, -(-len(raw_line) // per_line))
-    width = 420
-    height = 120 + lines * 22
-    return width, max(180, min(height, 560))
+    raw_lines = text.split(chr(10))
+    longest = max((len(line) for line in raw_lines), default=0)
+
+    # 가장 긴 줄에 맞춰 너비를 잡되 상한을 둔다
+    width = min(DIALOG_MAX_WIDTH, max(DIALOG_MIN_WIDTH, longest * DIALOG_CHAR_PX + 80))
+
+    per_line = max(1, (width - 80) // DIALOG_CHAR_PX)
+    lines = sum(max(1, -(-len(line) // per_line)) for line in raw_lines)
+    height = DIALOG_CHROME_PX + lines * DIALOG_LINE_PX
+    return width, max(DIALOG_MIN_HEIGHT, min(height, DIALOG_MAX_HEIGHT))
+
+
+def merge_error_messages(existing, new_message):
+    """이미 떠 있는 알림창에 새 메시지를 덧붙인다.
+
+    알림창을 새로 띄우면 Tk 의 grab 이 앞 창에서 넘어가 모달이 무너지고
+    창이 계속 쌓인다. 하나만 유지하고 내용을 합친다.
+    """
+    old = (existing or "").strip()
+    new = (new_message or "").strip()
+    if not old:
+        return new
+    if not new or new in old:
+        return old
+    return old + BR + BR + ("-" * 20) + BR + BR + new
 
 
 def describe_postprocess_stage(format_type):
@@ -418,6 +435,14 @@ UNKNOWN_TIME = "--:--"
 TEMP_DIR_NAME = ".utube_tmp"  # 변환 전 중간 파일을 격리하는 폴더
 BR = chr(10)  # 대화상자 줄바꿈
 SEARCH_TIMEOUT_MS = 60000  # 응답이 이 시간을 넘기면 검색 잠금을 풀어 준다
+DIALOG_MIN_WIDTH = 380
+DIALOG_MAX_WIDTH = 620
+DIALOG_MIN_HEIGHT = 180
+DIALOG_MAX_HEIGHT = 560
+DIALOG_CHAR_PX = 14      # Malgun Gothic 12pt 한글 한 글자의 대략적인 폭
+DIALOG_LINE_PX = 22      # 한 줄 높이
+DIALOG_CHROME_PX = 130   # 여백 + '확인' 버튼
+
 SEARCH_INITIAL_TEXT = "검색 결과가 없습니다. 키워드를 입력하고 검색해 주세요."
 SEARCH_NO_RESULT_TEXT = "일치하는 영상을 찾지 못했습니다. 다른 키워드로 검색해 보세요."
 
@@ -810,6 +835,9 @@ class YoutubeDownloaderApp(ctk.CTk):
         self.stop_requested = False
         self.last_error = None
         self.last_batch_tally = None
+        self._error_win = None
+        self._error_label = None
+        self._error_text = ""
         self.stop_message = None
         self.convert_started_at = None
         self.convert_pulse = 0
@@ -1717,8 +1745,10 @@ class YoutubeDownloaderApp(ctk.CTk):
         
     def update_progress_loop(self):
         # 일괄 다운로드 진행 중 실시간 진행 정보 업데이트
-        if self.batch_running and self.current_download_idx != -1:
-            item = self.queue_items[self.current_download_idx]
+        # 검사와 인덱싱 사이에 워커가 값을 바꿀 수 있으므로 한 번만 읽는다
+        idx = self.current_download_idx
+        if self.batch_running and 0 <= idx < len(self.queue_items):
+            item = self.queue_items[idx]
             status = self.current_download_status['status']
 
             # 중단 안내 문구가 100ms 뒤 이 루프에 덮여 사라지던 문제를 막는다
@@ -1743,12 +1773,14 @@ class YoutubeDownloaderApp(ctk.CTk):
                 self.cur_stats_lbl.configure(
                     text=f"{self.current_download_status['percent']*100:.1f}% | 속도: {self.current_download_status['speed']} | 남은 시간: {self.current_download_status['eta']}"
                 )
-            elif status == 'converting':
+            elif status == 'converting' and not self.stop_requested:
                 # 변환 진행률은 알 수 없다. 100% 로 얼려두면 멈춘 것처럼 보이므로
                 # 막대를 좌우로 움직여 살아 있음을 보인다.
+                # 중단을 요청한 뒤에는 경과 시간을 계속 늘리지 않는다.
                 self.convert_pulse = (getattr(self, 'convert_pulse', 0) + 1) % 40
                 self.cur_prog_bar.set(0.3 + 0.4 * abs(20 - self.convert_pulse) / 20)
-                elapsed = int(time.time() - (self.convert_started_at or time.time()))
+                started = self.convert_started_at
+                elapsed = int(time.time() - started) if started else 0
                 self.cur_stats_lbl.configure(
                     text=f"{describe_postprocess_stage(self.active_format)} 경과 {elapsed}초"
                     " · 이 단계는 곡 길이에 따라 수 분 걸릴 수 있습니다."
@@ -1960,6 +1992,12 @@ class YoutubeDownloaderApp(ctk.CTk):
         # 진행 중인 다운로드에 중단을 알린다
         self.stop_requested = True
 
+        # 변환 중이면 ffmpeg 를 먼저 끊어야 워커의 finally 가 돌아 임시 폴더가 정리된다
+        try:
+            terminate_child_ffmpeg()
+        except Exception:
+            pass
+
         # 썸네일 워커는 non-daemon 이라 정리하지 않으면 창이 닫힌 뒤에도 프로세스가 남는다
         # 각각 따로 감싼다. 앞이 실패해도 뒤가 반드시 실행돼야 프로세스가 남지 않는다.
         try:
@@ -1974,16 +2012,42 @@ class YoutubeDownloaderApp(ctk.CTk):
         self.destroy()
 
     def show_error(self, message):
+        # 이미 알림창이 떠 있으면 새로 만들지 않는다.
+        # 새 창을 띄우면 Tk 의 grab 이 넘어가 모달이 무너지고 창이 계속 쌓인다.
+        existing = getattr(self, '_error_win', None)
+        if existing is not None:
+            try:
+                if existing.winfo_exists():
+                    merged = merge_error_messages(self._error_text, message)
+                    self._error_text = merged
+                    self._error_label.configure(text=merged)
+                    width, height = measure_error_dialog(merged)
+                    existing.geometry(f"{width}x{height}")
+                    existing.lift()
+                    existing.focus_force()
+                    return
+            except Exception:
+                pass
+        self._error_win = None
+
         err_win = ctk.CTkToplevel(self)
         err_win.title("알림")
         width, height = measure_error_dialog(message)
         err_win.geometry(f"{width}x{height}")
-        err_win.minsize(360, 180)
+        err_win.minsize(DIALOG_MIN_WIDTH, DIALOG_MIN_HEIGHT)
         # 잘린 내용을 사용자가 직접 볼 수 있도록 크기 조절을 허용한다
         err_win.resizable(True, True)
+        err_win.transient(self)
 
         # 모달 제어
         err_win.grab_set()
+
+        def close():
+            self._error_win = None
+            self._error_text = ""
+            err_win.destroy()
+
+        err_win.protocol("WM_DELETE_WINDOW", close)
 
         # 확인 버튼이 항상 보이도록 버튼을 먼저 배치하고 본문이 남은 공간을 쓴다
         ok_btn = ctk.CTkButton(
@@ -1991,15 +2055,29 @@ class YoutubeDownloaderApp(ctk.CTk):
             text="확인",
             width=100,
             fg_color="#3A86FF",
-            command=err_win.destroy
+            command=close
         )
         ok_btn.pack(side="bottom", pady=(0, 20))
 
         body = ctk.CTkScrollableFrame(err_win, fg_color="transparent")
         body.pack(side="top", expand=True, fill="both", padx=20, pady=(20, 10))
 
-        label = ctk.CTkLabel(body, text=message, font=("Malgun Gothic", 12), justify="left", wraplength=340)
+        label = ctk.CTkLabel(body, text=message, font=("Malgun Gothic", 12),
+                             justify="left", wraplength=width - 90)
         label.pack(expand=True, fill="both")
+
+        # 창을 키우면 글줄도 따라 늘어나야 한다
+        def on_resize(event):
+            try:
+                label.configure(wraplength=max(200, event.width - 90))
+            except Exception:
+                pass
+
+        err_win.bind("<Configure>", on_resize)
+
+        self._error_win = err_win
+        self._error_label = label
+        self._error_text = message
         
 
 

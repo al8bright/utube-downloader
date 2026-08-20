@@ -1027,3 +1027,136 @@ class TestRenderRobustness:
         import inspect
         src = inspect.getsource(gui_app.ScrollableSearchFrame._render_row)
         assert "_once" not in src, "for _once in (0,) 는 continue/break 를 넣는 순간 조용히 오작동한다"
+
+
+# ==========================================================================
+# minor 묶음 E/F: 진행률 표시와 종료 처리
+# ==========================================================================
+class TestProgressIndexGuard:
+    def test_인덱스가_범위를_벗어나면_그리지_않는다(self):
+        """워커가 current_download_idx 를 바꾸는 사이에도 죽지 않아야 한다."""
+        calls = []
+
+        class App:
+            batch_running = True
+            current_download_idx = 5          # 범위 밖
+            queue_items = [{"title": "곡", "status": "downloading"}]
+            stop_requested = False
+            stop_message = None
+            current_download_status = {"status": "downloading", "percent": 0.5,
+                                       "speed": "1MB/s", "eta": "00:10"}
+            overall_progress = 0.5
+            active_format = "MP3"
+            convert_started_at = None
+            convert_pulse = 0
+
+            def update_progress_loop(self):
+                pass
+
+            def after(self, *a):
+                calls.append(a)
+
+            queue_status_lbl = types.SimpleNamespace(configure=lambda **k: None)
+            cur_prog_bar = types.SimpleNamespace(set=lambda v: None)
+            cur_stats_lbl = types.SimpleNamespace(configure=lambda **k: None)
+            total_prog_bar = types.SimpleNamespace(set=lambda v: None)
+            overall_status_lbl = types.SimpleNamespace(configure=lambda **k: None)
+
+        gui_app.YoutubeDownloaderApp.update_progress_loop(App())
+        assert calls, "예외로 죽으면 이후 모든 진행 표시가 멈춘다"
+
+
+class TestStopSuppressesConvertPulse:
+    def test_중단_요청_후에는_변환_경과를_갱신하지_않는다(self):
+        stats = []
+
+        class App:
+            batch_running = True
+            current_download_idx = 0
+            queue_items = [{"title": "곡", "status": "converting"}]
+            stop_requested = True
+            stop_message = "변환을 중단했습니다."
+            current_download_status = {"status": "converting", "percent": 1.0,
+                                       "speed": "", "eta": "--:--"}
+            overall_progress = 0.5
+            active_format = "MP3"
+            convert_started_at = None
+            convert_pulse = 0
+
+            def update_progress_loop(self):
+                pass
+
+            def after(self, *a):
+                pass
+
+            queue_status_lbl = types.SimpleNamespace(configure=lambda **k: None)
+            cur_prog_bar = types.SimpleNamespace(set=lambda v: None)
+            cur_stats_lbl = types.SimpleNamespace(configure=lambda **k: stats.append(k.get("text", "")))
+            total_prog_bar = types.SimpleNamespace(set=lambda v: None)
+            overall_status_lbl = types.SimpleNamespace(configure=lambda **k: None)
+
+        gui_app.YoutubeDownloaderApp.update_progress_loop(App())
+        assert not any("경과" in t for t in stats), "중단했는데 변환 경과가 계속 늘면 혼란스럽다"
+
+
+class TestClosingCleansConversion:
+    def test_종료시_변환_프로세스를_정리한다(self, monkeypatch):
+        killed = []
+        monkeypatch.setattr(gui_app, "terminate_child_ffmpeg",
+                            lambda: killed.append(True) or 1)
+        app = FakeClosingApp(batch_running=True)
+        gui_app.YoutubeDownloaderApp.on_closing(app)
+        assert killed, "변환 중 종료하면 ffmpeg 를 먼저 끊어야 워커가 정리된다"
+
+    def test_취소하면_변환을_끊지_않는다(self, monkeypatch):
+        killed = []
+        monkeypatch.setattr(gui_app, "terminate_child_ffmpeg",
+                            lambda: killed.append(True) or 1)
+        app = FakeClosingApp(batch_running=True)
+        app.confirm_result = False
+        gui_app.YoutubeDownloaderApp.on_closing(app)
+        assert killed == []
+
+
+# ==========================================================================
+# minor 묶음 G: 오류 대화상자
+# ==========================================================================
+class TestErrorMessageMerge:
+    def test_새_메시지를_아래에_덧붙인다(self):
+        merged = gui_app.merge_error_messages("첫 번째", "두 번째")
+        assert "첫 번째" in merged and "두 번째" in merged
+
+    def test_같은_메시지는_중복해서_쌓지_않는다(self):
+        merged = gui_app.merge_error_messages("같은 말", "같은 말")
+        assert merged.count("같은 말") == 1
+
+    def test_기존이_비어있으면_새_메시지만_남는다(self):
+        assert gui_app.merge_error_messages("", "새 메시지") == "새 메시지"
+
+
+class TestDialogWidth:
+    def test_긴_한_줄은_창을_넓힌다(self):
+        narrow, _ = gui_app.measure_error_dialog("짧다")
+        wide, _ = gui_app.measure_error_dialog("가" * 120)
+        assert wide >= narrow
+
+    def test_너비는_상한을_넘지_않는다(self):
+        width, _ = gui_app.measure_error_dialog("가" * 5000)
+        assert width <= gui_app.DIALOG_MAX_WIDTH
+
+    def test_높이는_상한을_넘지_않는다(self):
+        _, height = gui_app.measure_error_dialog("줄" + chr(10) * 500)
+        assert height <= gui_app.DIALOG_MAX_HEIGHT
+
+    def test_최소_크기를_보장한다(self):
+        width, height = gui_app.measure_error_dialog("")
+        assert width >= gui_app.DIALOG_MIN_WIDTH
+        assert height >= gui_app.DIALOG_MIN_HEIGHT
+
+
+class TestSingleDialog:
+    def test_show_error_가_기존_창을_재사용한다(self):
+        import inspect
+        src = inspect.getsource(gui_app.YoutubeDownloaderApp.show_error)
+        assert "_error_win" in src, "창을 추적하지 않으면 대화상자가 계속 쌓인다"
+        assert "merge_error_messages" in src
