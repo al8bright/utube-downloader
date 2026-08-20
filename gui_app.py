@@ -418,11 +418,14 @@ def build_ydl_opts(save_dir, format_type, quality, hook):
         opts['merge_output_format'] = 'mp4'
     else:
         opts['format'] = 'bestaudio/best'
-        opts['postprocessors'] = [{
+        postprocessor = {
             'key': 'FFmpegExtractAudio',
             'preferredcodec': format_type.lower(),
-            'preferredquality': quality if format_type == 'MP3' else '0',
-        }]
+        }
+        if format_type == 'MP3':
+            # FLAC 은 무손실이라 비트레이트 개념이 없다. '0' 은 의미 없는 값이었다.
+            postprocessor['preferredquality'] = quality
+        opts['postprocessors'] = [postprocessor]
     return opts
 
 
@@ -848,7 +851,6 @@ class YoutubeDownloaderApp(ctk.CTk):
         self.search_generation = 0
         self.save_dir_var = ctk.StringVar(value=os.path.normpath(os.getcwd()))
         self.queue_items = []  # 대기열 목록: [{title, url, duration, uploader, check_var, status}]
-        self.search_results = []
         
         # 현재 일괄 다운로드 제어 변수
         self.batch_running = False
@@ -1815,7 +1817,8 @@ class YoutubeDownloaderApp(ctk.CTk):
             audio_files.sort()
             video_files.sort()
         except Exception as e:
-            print(f"File list reload failed: {e}")
+            # --windowed 빌드에는 stdout 이 없어 print 는 흔적조차 남기지 못한다
+            self.show_error("파일 목록을 읽지 못했습니다." + BR + BR + str(e))
             
         self.scroll_audio_frame.populate_files(
             audio_files, 
