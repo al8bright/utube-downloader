@@ -11,6 +11,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gui_app
+from utube_downloader import app as app_module
 
 
 # --------------------------------------------------------------------------
@@ -1117,7 +1118,7 @@ class TestStopSuppressesConvertPulse:
 class TestClosingCleansConversion:
     def test_종료시_변환_프로세스를_정리한다(self, monkeypatch):
         killed = []
-        monkeypatch.setattr(gui_app, "terminate_child_ffmpeg",
+        monkeypatch.setattr(app_module, "terminate_child_ffmpeg",
                             lambda: killed.append(True) or 1)
         app = FakeClosingApp(batch_running=True)
         gui_app.YoutubeDownloaderApp.on_closing(app)
@@ -1125,7 +1126,7 @@ class TestClosingCleansConversion:
 
     def test_취소하면_변환을_끊지_않는다(self, monkeypatch):
         killed = []
-        monkeypatch.setattr(gui_app, "terminate_child_ffmpeg",
+        monkeypatch.setattr(app_module, "terminate_child_ffmpeg",
                             lambda: killed.append(True) or 1)
         app = FakeClosingApp(batch_running=True)
         app.confirm_result = False
@@ -1199,9 +1200,13 @@ class TestImportsComplete:
         assert hasattr(gui_app, "messagebox")
         assert hasattr(gui_app.messagebox, "askyesno")
 
-    def test_필요한_표준_모듈이_모두_있다(self):
-        for name in ("os", "sys", "re", "shutil", "threading", "time"):
-            assert hasattr(gui_app, name), f"{name} 미임포트"
+    def test_패키지_모듈이_모두_임포트된다(self):
+        """모듈을 나눈 뒤 import 가 빠지면 실행 시점에야 터진다. 미리 잡는다."""
+        import importlib
+
+        for name in ("theme", "urls", "storage", "formatting",
+                     "winproc", "downloader", "ui", "app", "widgets"):
+            importlib.import_module(f"utube_downloader.{name}")
 
 
 class TestFlacQuality:
