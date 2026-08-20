@@ -1,40 +1,194 @@
 import os
 import sys
+import shutil
 import threading
 import urllib.request
 import webbrowser
 from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor
 import customtkinter as ctk
+from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
 import yt_dlp
 
 
 def format_duration(seconds):
-    """초를 mm:ss 또는 hh:mm:ss 문자열로 변환한다."""
-    mins, secs = divmod(seconds, 60)
+    """초를 mm:ss 또는 hh:mm:ss 문자열로 변환한다.
+
+    라이브 방송은 duration 이 None 이고 일부 항목은 float 으로 오므로,
+    변환할 수 없는 값은 예외 대신 기본 표시를 돌려준다.
+    """
+    try:
+        total = int(seconds)
+    except (TypeError, ValueError):
+        return UNKNOWN_TIME
+    if total < 0:
+        return UNKNOWN_TIME
+    mins, secs = divmod(total, 60)
     hours, mins = divmod(mins, 60)
     return f"{hours:02d}:{mins:02d}:{secs:02d}" if hours > 0 else f"{mins:02d}:{secs:02d}"
 
 
 def format_eta(seconds):
-    """남은 시간(초)을 mm:ss 문자열로 변환한다."""
-    mins, secs = divmod(seconds, 60)
+    """남은 시간(초)을 mm:ss 문자열로 변환한다.
+
+    yt-dlp 는 eta 를 float 으로 주기도 한다. 표시용 값 하나 때문에
+    다운로드 전체가 실패로 처리되지 않도록 방어한다.
+    """
+    try:
+        total = int(seconds)
+    except (TypeError, ValueError):
+        return UNKNOWN_TIME
+    if total < 0:
+        return UNKNOWN_TIME
+    mins, secs = divmod(total, 60)
     return f"{mins:02d}:{secs:02d}"
 
 
 def resolve_save_dir(raw_dir):
-    """저장 폴더 경로를 검증한다. (사용할 경로, 유효여부) 를 돌려준다."""
+    """저장 폴더 경로를 검증한다. (사용할 경로, 유효여부) 를 돌려준다.
+
+    폴더가 아닌 경로(파일, 끊긴 네트워크 드라이브)를 그대로 통과시키면
+    다운로드와 일괄 삭제가 엉뚱한 폴더에서 일어나므로 isdir 로 확인한다.
+    """
     save_dir = (raw_dir or '').strip()
-    if not save_dir or not os.path.exists(save_dir):
+    if not save_dir or not os.path.isdir(save_dir):
         return os.getcwd(), False
     return save_dir, True
+
+
+def cleanup_temp_dir(save_dir):
+    """앱이 만든 임시 폴더만 지운다. 사용자 파일에는 손대지 않는다."""
+    if not save_dir:
+        return
+    temp_dir = os.path.join(save_dir, TEMP_DIR_NAME)
+    if not os.path.isdir(temp_dir):
+        return
+    try:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+    except Exception:
+        pass
+
+
+def bind_children_to_process_lifetime():
+    """자식 프로세스(ffmpeg)가 이 프로세스보다 오래 살지 못하게 묶는다.
+
+    Windows 는 부모가 죽어도 자식을 종료하지 않고, yt-dlp 의 Popen 은
+    Job Object 도 creationflags 도 지정하지 않는다. 그래서 변환 중 창을 닫으면
+    ffmpeg.exe 가 고아로 남아 계속 돈다. JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE 로
+    현재 프로세스를 Job 에 넣어두면 어떤 경로로 종료되든 자식이 함께 정리된다.
+    """
+    if sys.platform != 'win32':
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        JobObjectExtendedLimitInformation = 9
+        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
+
+        class IO_COUNTERS(ctypes.Structure):
+            _fields_ = [(n, ctypes.c_ulonglong) for n in (
+                'ReadOperationCount', 'WriteOperationCount', 'OtherOperationCount',
+                'ReadTransferCount', 'WriteTransferCount', 'OtherTransferCount')]
+
+        class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+            _fields_ = [
+                ('PerProcessUserTimeLimit', ctypes.c_int64),
+                ('PerJobUserTimeLimit', ctypes.c_int64),
+                ('LimitFlags', wintypes.DWORD),
+                ('MinimumWorkingSetSize', ctypes.c_size_t),
+                ('MaximumWorkingSetSize', ctypes.c_size_t),
+                ('ActiveProcessLimit', wintypes.DWORD),
+                ('Affinity', ctypes.POINTER(ctypes.c_ulong)),
+                ('PriorityClass', wintypes.DWORD),
+                ('SchedulingClass', wintypes.DWORD),
+            ]
+
+        class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+            _fields_ = [
+                ('BasicLimitInformation', JOBOBJECT_BASIC_LIMIT_INFORMATION),
+                ('IoInfo', IO_COUNTERS),
+                ('ProcessMemoryLimit', ctypes.c_size_t),
+                ('JobMemoryLimit', ctypes.c_size_t),
+                ('PeakProcessMemoryUsed', ctypes.c_size_t),
+                ('PeakJobMemoryUsed', ctypes.c_size_t),
+            ]
+
+        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        # 64비트에서 HANDLE 이 c_int 로 잘리지 않도록 시그니처를 명시한다
+        kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+        kernel32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
+        kernel32.SetInformationJobObject.argtypes = [
+            wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD]
+        kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+        kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+
+        job = kernel32.CreateJobObjectW(None, None)
+        if not job:
+            return None
+
+        info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if not kernel32.SetInformationJobObject(
+                job, JobObjectExtendedLimitInformation,
+                ctypes.byref(info), ctypes.sizeof(info)):
+            kernel32.CloseHandle(job)
+            return None
+
+        if not kernel32.AssignProcessToJobObject(job, kernel32.GetCurrentProcess()):
+            kernel32.CloseHandle(job)
+            return None
+
+        # 핸들을 살려둬야 Job 이 유지된다. 프로세스 종료 시 닫히며 자식이 정리된다.
+        return job
+    except Exception:
+        return None
+
+
+def describe_download_error(exc):
+    """yt-dlp 예외를 사용자가 조치할 수 있는 한국어 문구로 바꾼다."""
+    raw = str(exc)
+    low = raw.lower()
+    if 'ffmpeg' in low or 'ffprobe' in low:
+        return "FFmpeg 를 찾을 수 없습니다. winget install Gyan.FFmpeg 로 설치한 뒤 다시 시도해 주세요."
+    if 'private video' in low:
+        return "비공개 영상이라 다운로드할 수 없습니다."
+    if 'age' in low and 'restrict' in low:
+        return "연령 제한 영상이라 다운로드할 수 없습니다."
+    if 'unavailable' in low or 'removed' in low:
+        return "삭제되었거나 이용할 수 없는 영상입니다."
+    if 'not available in your country' in low or 'geo' in low and 'block' in low:
+        return "지역 제한으로 차단된 영상입니다."
+    if 'no space' in low or 'disk' in low and 'full' in low:
+        return "저장 공간이 부족합니다."
+    if 'urlopen' in low or 'timed out' in low or 'connection' in low:
+        return "네트워크 연결에 실패했습니다. 인터넷 상태를 확인해 주세요."
+    return raw.strip() or "알 수 없는 오류가 발생했습니다."
+
+
+def is_playlist_info(info):
+    """추출 결과가 재생목록/채널인지 판정한다.
+
+    noplaylist 는 watch?v=...&list=... 에서 list 를 떼어낼 뿐,
+    순수 재생목록 URL 에는 효력이 없어 항목 1개가 수백 개를 받게 된다.
+    """
+    if not info:
+        return False
+    return info.get('_type') in ('playlist', 'multi_video')
 
 
 def build_ydl_opts(save_dir, format_type, quality, hook):
     """포맷에 맞는 yt-dlp 옵션을 만든다."""
     opts = {
-        'outtmpl': os.path.join(save_dir, '%(title)s.%(ext)s'),
+        # 영상 ID 를 붙여야 제목이 같은 다른 영상이 기존 파일을 덮어쓰지 않는다
+        'outtmpl': '%(title)s [%(id)s].%(ext)s',
+        # 중간 파일(.part/.webm)을 전용 폴더에 두어 저장 폴더가 더럽혀지지 않게 한다
+        'paths': {
+            'home': save_dir,
+            'temp': os.path.join(save_dir, TEMP_DIR_NAME),
+        },
         'noplaylist': True,
         'quiet': True,
     }
@@ -43,6 +197,7 @@ def build_ydl_opts(save_dir, format_type, quality, hook):
 
     if format_type == 'MP4':
         opts['format'] = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
+        opts['merge_output_format'] = 'mp4'
     else:
         opts['format'] = 'bestaudio/best'
         opts['postprocessors'] = [{
@@ -57,6 +212,10 @@ def resource_path(relative_path):
     """PyInstaller 번들과 일반 실행 양쪽에서 리소스 절대 경로를 반환한다."""
     base_path = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base_path, relative_path)
+
+UNKNOWN_TIME = "--:--"
+TEMP_DIR_NAME = ".utube_tmp"  # 변환 전 중간 파일을 격리하는 폴더
+BR = chr(10)  # 대화상자 줄바꿈
 
 # 시스템 인코딩 및 테마 설정
 ctk.set_appearance_mode("Dark")
@@ -304,7 +463,10 @@ class ScrollableQueueFrame(ctk.CTkScrollableFrame):
             status_text = "대기 중"
             status_color = "#888888"
             
-            if status == 'downloading':
+            if status == 'analyzing':
+                status_text = "분석 중..."
+                status_color = "#F77F00"
+            elif status == 'downloading':
                 status_text = "다운로드 중..."
                 status_color = "#3A86FF"
             elif status == 'converting':
@@ -313,8 +475,13 @@ class ScrollableQueueFrame(ctk.CTkScrollableFrame):
             elif status == 'finished':
                 status_text = "완료"
                 status_color = "#06D6A0"
+            elif status == 'stopped':
+                status_text = "사용자 중단"
+                status_color = "#A0A0B0"
             elif status == 'failed':
-                status_text = "실패"
+                # 실패 사유를 함께 보여줘야 사용자가 조치할 수 있다
+                reason = item.get('error')
+                status_text = f"실패 - {reason}" if reason else "실패"
                 status_color = "#FF007F"
                 
             sub_lbl = ctk.CTkLabel(
@@ -350,6 +517,12 @@ class YoutubeDownloaderApp(ctk.CTk):
         self.geometry("800x700")
         self.minsize(750, 650)
         
+        # 자식 프로세스(ffmpeg)가 앱보다 오래 살지 못하도록 묶는다
+        self._job_handle = bind_children_to_process_lifetime()
+
+        # X 버튼을 눌렀을 때 정리 절차를 거치게 한다
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
+
         # 윈도우 타이틀바 아이콘 지정
         try:
             icon_file = resource_path("youtube_icon.ico")
@@ -361,6 +534,7 @@ class YoutubeDownloaderApp(ctk.CTk):
         
         # 상태 변수들
         self.stop_requested = False
+        self.last_error = None
         self.save_dir_var = ctk.StringVar(value=os.path.normpath(os.getcwd()))
         self.queue_items = []  # 대기열 목록: [{title, url, duration, uploader, check_var, status}]
         self.search_results = []
@@ -831,11 +1005,32 @@ class YoutubeDownloaderApp(ctk.CTk):
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
-                
+
+            # noplaylist 는 watch?v=...&list=... 만 처리한다.
+            # 순수 재생목록/채널 URL 은 항목 1개가 영상 수백 개를 받게 되므로 막는다.
+            if is_playlist_info(info):
+                count = len(info.get('entries') or [])
+                item.update({
+                    'title': f"재생목록은 추가할 수 없습니다: {info.get('title', url)}",
+                    'uploader': f'영상 {count}개 포함',
+                    'status': 'failed',
+                    'error': (
+                        f"재생목록/채널 링크입니다(영상 {count}개). "
+                        "개별 영상 링크를 넣거나 검색 탭에서 곡을 선택해 주세요."
+                    ),
+                })
+                self.after(0, self.update_queue_list_ui)
+                self.after(0, self.show_error,
+                           f"재생목록 링크는 추가할 수 없습니다.\n\n"
+                           f"'{info.get('title', url)}' 에는 영상 {count}개가 들어 있어\n"
+                           f"한 항목으로 받으면 저장 폴더가 통째로 채워집니다.\n\n"
+                           f"개별 영상 링크를 넣거나 검색 탭을 이용해 주세요.")
+                return
+
             title = info.get('title', 'Unknown Title')
             uploader = info.get('uploader', 'Unknown')
             duration_str = format_duration(info.get('duration', 0))
-            
+
             item.update({
                 'title': title,
                 'duration': duration_str,
@@ -846,7 +1041,8 @@ class YoutubeDownloaderApp(ctk.CTk):
             item.update({
                 'title': f"분석 실패: {url}",
                 'uploader': '오류 발생',
-                'status': 'failed'
+                'status': 'failed',
+                'error': describe_download_error(e),
             })
             
         # UI 스레드에서 대기열 목록 UI 갱신
@@ -918,6 +1114,20 @@ class YoutubeDownloaderApp(ctk.CTk):
             self.show_error("다운로드할(완료되지 않은) 항목을 1개 이상 체크해 주세요.")
             return
             
+        # 저장 폴더가 유효하지 않으면 조용히 cwd 로 새는 대신 먼저 알린다
+        resolved, dir_ok = resolve_save_dir(self.save_dir_var.get())
+        if not dir_ok:
+            self.show_error(
+                "저장 폴더를 찾을 수 없습니다."
+                + BR + BR
+                + f"입력된 경로: {self.save_dir_var.get().strip() or '(비어 있음)'}"
+                + BR
+                + f"대신 사용할 폴더: {resolved}"
+                + BR + BR
+                + "폴더를 다시 지정해 주세요."
+            )
+            self.save_dir_var.set(os.path.normpath(resolved))
+
         self.stop_requested = False
         self.batch_running = True
         self.download_selected_btn.configure(state="disabled")
@@ -939,40 +1149,51 @@ class YoutubeDownloaderApp(ctk.CTk):
         quality_str = self.quality_var.get()
         quality = quality_str.replace("kbps", "")
         
-        for num, idx in enumerate(indices_to_download):
-            if self.stop_requested:
-                break
-                
-            self.current_download_idx = idx
-            item = self.queue_items[idx]
-            
-            # 상태값 초기화
-            item['status'] = 'downloading'
-            self.current_download_status = {
-                'percent': 0.0,
-                'speed': '계산 중...',
-                'eta': '--:--',
-                'status': 'downloading'
-            }
-            
-            # 전체 작업 대비 진행률 갱신
-            self.overall_progress = num / total_count
-            self.after(0, self.update_queue_list_ui)
-            
-            # 단일 다운로드 수행
-            success = self.download_single(item['url'], format_type, quality)
-            
-            if success:
-                item['status'] = 'finished'
-            else:
-                item['status'] = 'failed'
-                
-            self.overall_progress = (num + 1) / total_count
-            self.after(0, self.update_queue_list_ui)
-            
-        self.batch_running = False
-        self.current_download_idx = -1
-        self.after(0, self.on_batch_download_complete)
+        # try/finally 가 없으면 예외 한 번에 batch_running 이 True 로 고착되어
+        # 앱을 재시작하기 전까지 다운로드를 다시 시작할 수 없다.
+        try:
+            for num, idx in enumerate(indices_to_download):
+                if self.stop_requested:
+                    break
+
+                self.current_download_idx = idx
+                item = self.queue_items[idx]
+
+                # 상태값 초기화
+                item['status'] = 'downloading'
+                item.pop('error', None)
+                self.current_download_status = {
+                    'percent': 0.0,
+                    'speed': '계산 중...',
+                    'eta': UNKNOWN_TIME,
+                    'status': 'downloading'
+                }
+
+                # 전체 작업 대비 진행률 갱신
+                self.overall_progress = num / total_count
+                self.after(0, self.update_queue_list_ui)
+
+                # 단일 다운로드 수행
+                self.last_error = None
+                success = self.download_single(item['url'], format_type, quality)
+
+                if success:
+                    item['status'] = 'finished'
+                elif self.stop_requested:
+                    # 사용자가 직접 멈춘 것은 오류가 아니다
+                    item['status'] = 'stopped'
+                else:
+                    item['status'] = 'failed'
+                    item['error'] = self.last_error
+
+                self.overall_progress = (num + 1) / total_count
+                self.after(0, self.update_queue_list_ui)
+        finally:
+            self.batch_running = False
+            self.current_download_idx = -1
+            # 배치가 끝나면 중간 파일 찌꺼기를 정리한다
+            cleanup_temp_dir(resolve_save_dir(self.save_dir_var.get())[0])
+            self.after(0, self.on_batch_download_complete)
         
     def download_single(self, url, format_type, quality):
         def progress_hook(d):
@@ -1021,7 +1242,9 @@ class YoutubeDownloaderApp(ctk.CTk):
                 ydl.download([url])
             return True
         except Exception as e:
-            print(f"Download error for {url}: {e}")
+            # print 는 cp949 콘솔에서 스스로 UnicodeEncodeError 를 내고,
+            # --windowed 빌드에서는 stdout 이 없어 원인이 완전히 사라진다.
+            self.last_error = describe_download_error(e)
             return False
             
     def update_queue_list_ui(self):
@@ -1213,6 +1436,33 @@ class YoutubeDownloaderApp(ctk.CTk):
         except Exception as e:
             self.show_error(f"폴더 열기 실패:\n{e}")
             
+    def confirm_exit_during_download(self):
+        """다운로드 진행 중 종료를 사용자에게 확인받는다."""
+        return messagebox.askyesno(
+            "다운로드 진행 중",
+            "아직 다운로드가 진행 중입니다.\n\n"
+            "지금 종료하면 받고 있던 파일은 완성되지 않은 채 저장 폴더에 남습니다.\n"
+            "종료할까요?",
+            icon="warning",
+            parent=self,
+        )
+
+    def on_closing(self):
+        """창 닫기(X) 처리. 진행 중이면 확인을 받고 워커를 정리한 뒤 닫는다."""
+        if self.batch_running and not self.confirm_exit_during_download():
+            return
+
+        # 진행 중인 다운로드에 중단을 알린다
+        self.stop_requested = True
+
+        # 썸네일 워커는 non-daemon 이라 정리하지 않으면 창이 닫힌 뒤에도 프로세스가 남는다
+        try:
+            self.search_scroll.thumb_executor.shutdown(wait=False, cancel_futures=True)
+        except Exception:
+            pass
+
+        self.destroy()
+
     def show_error(self, message):
         err_win = ctk.CTkToplevel(self)
         err_win.title("알림")
