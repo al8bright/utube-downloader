@@ -497,6 +497,17 @@ class ScrollableSearchFrame(ctk.CTkScrollableFrame):
             self.search_widgets.append(label)
             return
 
+        # 데이터는 즉시 전부 채운다. 위젯만 나눠 그린다.
+        # 그러지 않으면 렌더링이 끝나기 전에 '선택 항목 추가' 를 누른 곡이 누락된다.
+        for item in results:
+            self.search_results_data.append({
+                'title': item['title'],
+                'url': item['url'],
+                'duration': item['duration'],
+                'uploader': item['uploader'],
+                'check_var': ctk.BooleanVar(value=False),
+            })
+
         # 100건을 한 번에 그리면 위젯 700개를 동기 생성해 UI 가 수 초간 멈춘다.
         # 한 번에 조금씩 그려 이벤트 루프에 숨 쉴 틈을 준다.
         self._render_chunk(results, 0)
@@ -515,8 +526,8 @@ class ScrollableSearchFrame(ctk.CTkScrollableFrame):
             frame = ctk.CTkFrame(self, fg_color="#1E1E2E", corner_radius=6)
             frame.pack(fill="x", pady=4, padx=5)
             
-            # 체크박스 변수 생성
-            check_var = ctk.BooleanVar(value=False)
+            # populate_results 에서 미리 만들어 둔 체크 변수를 재사용한다
+            check_var = self.search_results_data[idx]['check_var']
             chk = ctk.CTkCheckBox(frame, text="", variable=check_var, width=20)
             chk.pack(side="left", padx=(10, 5), pady=10)
             
@@ -578,14 +589,6 @@ class ScrollableSearchFrame(ctk.CTkScrollableFrame):
             )
             
             # 검색결과 데이터 수집
-            self.search_results_data.append({
-                'title': item['title'],
-                'url': item['url'],
-                'duration': item['duration'],
-                'uploader': item['uploader'],
-                'check_var': check_var
-            })
-            
             self.search_widgets.append(frame)
 
     def get_selected_items(self):
@@ -745,6 +748,7 @@ class YoutubeDownloaderApp(ctk.CTk):
         self.convert_started_at = None
         self.convert_pulse = 0
         self.finished_hook_count = 0
+        self.active_format = 'MP3'
         self.pending_added_during_batch = 0
         self.searching = False
         self.search_generation = 0
@@ -1399,20 +1403,30 @@ class YoutubeDownloaderApp(ctk.CTk):
         self.stop_requested = False
         self.batch_running = True
         self.set_controls_locked(True)
+
+        # Tk 변수는 메인 스레드에서만 읽는다. 워커 스레드에서 읽으면
+        # "main thread is not in main loop" 로 배치가 통째로 죽는다.
+        # 다운로드 중에는 이 컨트롤들이 잠기므로 값이 바뀔 일도 없다.
+        settings = {
+            'format': self.format_var.get(),
+            'quality': self.quality_var.get().replace("kbps", ""),
+            'save_dir': resolved,
+        }
         
         # 백그라운드 스레드에서 순차 다운로드 시작
         thread = threading.Thread(
             target=self.batch_download_loop, 
-            args=(selected_indices,), 
+            args=(selected_indices, settings),
             daemon=True
         )
         thread.start()
         
-    def batch_download_loop(self, indices_to_download):
+    def batch_download_loop(self, indices_to_download, settings):
         total_count = len(indices_to_download)
-        format_type = self.format_var.get()
-        quality_str = self.quality_var.get()
-        quality = quality_str.replace("kbps", "")
+        format_type = settings['format']
+        quality = settings['quality']
+        save_dir = settings['save_dir']
+        self.active_format = format_type
         
         # 성공/실패/중단 개수를 집계해 완료 보고에 넘긴다
         tally = {'done': 0, 'failed': 0, 'stopped': 0}
@@ -1448,7 +1462,7 @@ class YoutubeDownloaderApp(ctk.CTk):
                 self.last_error = None
                 self.finished_hook_count = 0
                 self.convert_started_at = None
-                success = self.download_single(item['url'], format_type, quality)
+                success = self.download_single(item['url'], format_type, quality, save_dir)
 
                 if success:
                     item['status'] = 'finished'
@@ -1468,10 +1482,10 @@ class YoutubeDownloaderApp(ctk.CTk):
             self.batch_running = False
             self.current_download_idx = -1
             # 배치가 끝나면 중간 파일 찌꺼기를 정리한다
-            cleanup_temp_dir(resolve_save_dir(self.save_dir_var.get())[0])
+            cleanup_temp_dir(save_dir)
             self.after(0, self.on_batch_download_complete)
         
-    def download_single(self, url, format_type, quality):
+    def download_single(self, url, format_type, quality, save_dir):
         def progress_hook(d):
             if self.stop_requested:
                 raise Exception("Download aborted by user")
@@ -1504,7 +1518,7 @@ class YoutubeDownloaderApp(ctk.CTk):
                 # 첫 번째에서 '변환 중' 으로 바꿔버리면 두 번째 다운로드가 시작되며
                 # 진행률이 100% -> 0% 로 되감겨 보인다. 마지막 스트림에서만 전환한다.
                 self.finished_hook_count += 1
-                if self.format_var.get() == 'MP4' and self.finished_hook_count < 2:
+                if self.active_format == 'MP4' and self.finished_hook_count < 2:
                     return
 
                 self.convert_started_at = time.time()
@@ -1517,8 +1531,6 @@ class YoutubeDownloaderApp(ctk.CTk):
                     self.queue_items[self.current_download_idx]['status'] = 'converting'
                     self.after(0, self.update_queue_list_ui)
                     
-        save_dir, _dir_ok = resolve_save_dir(self.save_dir_var.get())
-
         ydl_opts = build_ydl_opts(save_dir, format_type, quality, progress_hook)
         
         try:
@@ -1581,7 +1593,7 @@ class YoutubeDownloaderApp(ctk.CTk):
                 )
             elif status == 'converting':
                 # MP4 는 오디오 변환이 아니라 영상 병합이다
-                stage = describe_postprocess_stage(self.format_var.get())
+                stage = describe_postprocess_stage(self.active_format)
                 self.queue_status_lbl.configure(
                     text=f"{stage} {item['title'][:34]}...",
                     text_color="#F77F00"
@@ -1599,7 +1611,7 @@ class YoutubeDownloaderApp(ctk.CTk):
                 self.cur_prog_bar.set(0.3 + 0.4 * abs(20 - self.convert_pulse) / 20)
                 elapsed = int(time.time() - (self.convert_started_at or time.time()))
                 self.cur_stats_lbl.configure(
-                    text=f"{describe_postprocess_stage(self.format_var.get())} 경과 {elapsed}초"
+                    text=f"{describe_postprocess_stage(self.active_format)} 경과 {elapsed}초"
                     " · 이 단계는 곡 길이에 따라 수 분 걸릴 수 있습니다."
                 )
 
