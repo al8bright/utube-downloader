@@ -10,6 +10,49 @@ from PIL import Image, ImageTk
 import yt_dlp
 
 
+def format_duration(seconds):
+    """초를 mm:ss 또는 hh:mm:ss 문자열로 변환한다."""
+    mins, secs = divmod(seconds, 60)
+    hours, mins = divmod(mins, 60)
+    return f"{hours:02d}:{mins:02d}:{secs:02d}" if hours > 0 else f"{mins:02d}:{secs:02d}"
+
+
+def format_eta(seconds):
+    """남은 시간(초)을 mm:ss 문자열로 변환한다."""
+    mins, secs = divmod(seconds, 60)
+    return f"{mins:02d}:{secs:02d}"
+
+
+def resolve_save_dir(raw_dir):
+    """저장 폴더 경로를 검증한다. (사용할 경로, 유효여부) 를 돌려준다."""
+    save_dir = (raw_dir or '').strip()
+    if not save_dir or not os.path.exists(save_dir):
+        return os.getcwd(), False
+    return save_dir, True
+
+
+def build_ydl_opts(save_dir, format_type, quality, hook):
+    """포맷에 맞는 yt-dlp 옵션을 만든다."""
+    opts = {
+        'outtmpl': os.path.join(save_dir, '%(title)s.%(ext)s'),
+        'noplaylist': True,
+        'quiet': True,
+    }
+    if hook is not None:
+        opts['progress_hooks'] = [hook]
+
+    if format_type == 'MP4':
+        opts['format'] = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
+    else:
+        opts['format'] = 'bestaudio/best'
+        opts['postprocessors'] = [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': format_type.lower(),
+            'preferredquality': quality if format_type == 'MP3' else '0',
+        }]
+    return opts
+
+
 def resource_path(relative_path):
     """PyInstaller 번들과 일반 실행 양쪽에서 리소스 절대 경로를 반환한다."""
     base_path = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
@@ -698,10 +741,7 @@ class YoutubeDownloaderApp(ctk.CTk):
                 
             results = []
             for entry in entries:
-                duration_sec = entry.get('duration', 0)
-                mins, secs = divmod(duration_sec, 60)
-                hours, mins = divmod(mins, 60)
-                duration_str = f"{hours:02d}:{mins:02d}:{secs:02d}" if hours > 0 else f"{mins:02d}:{secs:02d}"
+                duration_str = format_duration(entry.get('duration', 0))
                 
                 results.append({
                     'title': entry.get('title', 'Unknown Title'),
@@ -793,12 +833,8 @@ class YoutubeDownloaderApp(ctk.CTk):
                 info = ydl.extract_info(url, download=False)
                 
             title = info.get('title', 'Unknown Title')
-            duration_sec = info.get('duration', 0)
             uploader = info.get('uploader', 'Unknown')
-            
-            mins, secs = divmod(duration_sec, 60)
-            hours, mins = divmod(mins, 60)
-            duration_str = f"{hours:02d}:{mins:02d}:{secs:02d}" if hours > 0 else f"{mins:02d}:{secs:02d}"
+            duration_str = format_duration(info.get('duration', 0))
             
             item.update({
                 'title': title,
@@ -958,11 +994,7 @@ class YoutubeDownloaderApp(ctk.CTk):
                     speed_str = "계산 중..."
                     
                 eta = d.get('eta')
-                if eta:
-                    mins, secs = divmod(eta, 60)
-                    eta_str = f"{mins:02d}:{secs:02d}"
-                else:
-                    eta_str = "--:--"
+                eta_str = format_eta(eta) if eta else "--:--"
                     
                 self.current_download_status.update({
                     'percent': percent,
@@ -980,31 +1012,9 @@ class YoutubeDownloaderApp(ctk.CTk):
                     self.queue_items[self.current_download_idx]['status'] = 'converting'
                     self.after(0, self.update_queue_list_ui)
                     
-        save_dir = self.save_dir_var.get().strip()
-        if not save_dir or not os.path.exists(save_dir):
-            save_dir = os.getcwd()
+        save_dir, _dir_ok = resolve_save_dir(self.save_dir_var.get())
 
-        if format_type == 'MP4':
-            ydl_opts = {
-                'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-                'outtmpl': os.path.join(save_dir, '%(title)s.%(ext)s'),
-                'progress_hooks': [progress_hook],
-                'noplaylist': True,
-                'quiet': True,
-            }
-        else:
-            ydl_opts = {
-                'format': 'bestaudio/best',
-                'outtmpl': os.path.join(save_dir, '%(title)s.%(ext)s'),
-                'progress_hooks': [progress_hook],
-                'noplaylist': True,
-                'postprocessors': [{
-                    'key': 'FFmpegExtractAudio',
-                    'preferredcodec': format_type.lower(),
-                    'preferredquality': quality if format_type == 'MP3' else '0',
-                }],
-                'quiet': True,
-            }
+        ydl_opts = build_ydl_opts(save_dir, format_type, quality, progress_hook)
         
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -1076,9 +1086,7 @@ class YoutubeDownloaderApp(ctk.CTk):
             self.refresh_file_list()
 
     def refresh_file_list(self):
-        save_dir = self.save_dir_var.get().strip()
-        if not save_dir or not os.path.exists(save_dir):
-            save_dir = os.getcwd()
+        save_dir, _dir_ok = resolve_save_dir(self.save_dir_var.get())
             
         audio_files = []
         video_files = []
@@ -1127,9 +1135,7 @@ class YoutubeDownloaderApp(ctk.CTk):
                 self.show_error(f"파일 삭제 오류:\n{e}")
                 
     def delete_all_completed_audio(self):
-        save_dir = self.save_dir_var.get().strip()
-        if not save_dir or not os.path.exists(save_dir):
-            save_dir = os.getcwd()
+        save_dir, _dir_ok = resolve_save_dir(self.save_dir_var.get())
         audio_files = []
         try:
             for f in os.listdir(save_dir):
@@ -1165,9 +1171,7 @@ class YoutubeDownloaderApp(ctk.CTk):
                 self.show_error(f"{deleted_count}개 파일 삭제 완료 (일부 실패):\n{err_msg}")
 
     def delete_all_completed_video(self):
-        save_dir = self.save_dir_var.get().strip()
-        if not save_dir or not os.path.exists(save_dir):
-            save_dir = os.getcwd()
+        save_dir, _dir_ok = resolve_save_dir(self.save_dir_var.get())
         video_files = []
         try:
             for f in os.listdir(save_dir):
@@ -1203,9 +1207,7 @@ class YoutubeDownloaderApp(ctk.CTk):
                 self.show_error(f"{deleted_count}개 파일 삭제 완료 (일부 실패):\n{err_msg}")
                 
     def open_download_folder(self):
-        save_dir = self.save_dir_var.get().strip()
-        if not save_dir or not os.path.exists(save_dir):
-            save_dir = os.getcwd()
+        save_dir, _dir_ok = resolve_save_dir(self.save_dir_var.get())
         try:
             os.startfile(save_dir)
         except Exception as e:
