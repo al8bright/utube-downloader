@@ -85,15 +85,17 @@ class TestLockedWidgetNames:
         src = inspect.getsource(app_module.YoutubeDownloaderApp.set_controls_locked)
         assert "LOCKED_WIDGETS" in src, "잠금 대상은 상수로 두어야 검증할 수 있다"
         assert isinstance(app_module.LOCKED_WIDGETS, tuple)
-        assert len(app_module.LOCKED_WIDGETS) >= 12
+        # 검색과 대기열에 담기는 받는 중에도 쓸 수 있게 풀었다 (theme.LOCKED_WIDGETS 주석 참고)
+        assert len(app_module.LOCKED_WIDGETS) >= 10
 
     def test_위젯_이름은_생성부에_모두_존재한다(self):
         """오타나 이름 변경이 getattr 기본값 None 뒤에 숨지 않도록 소스에서 확인한다."""
         from .test_project_health import read_all
 
         code = read_all()
+        # ui.py 의 버튼 도우미(outline_button 등)로 만드는 위젯도 있으므로 대입만 확인한다
         missing = [n for n in app_module.LOCKED_WIDGETS
-                   if f"self.{n} = ctk." not in code and f"app.{n} = ctk." not in code]
+                   if f"self.{n} = " not in code and f"app.{n} = " not in code]
         assert missing == [], f"생성되지 않는 위젯 이름: {missing}"
 
 class TestStartFailureRecovery:
@@ -179,7 +181,7 @@ class TestSearchRobustness:
         app = FakeSearchApp()
         app.searching = True
         app.search_generation = 9
-        app_module.YoutubeDownloaderApp.on_search_success(app, [], generation=3)
+        app_module.YoutubeDownloaderApp.on_search_success(app, 0, generation=3)
         assert app.searching is False, "가드가 발동해도 버튼이 영구 잠기면 안 된다"
 
     def test_타임아웃이_예약된다(self, monkeypatch):
@@ -268,7 +270,7 @@ class TestAlreadyQueuedFeedback:
             "title": "곡", "url": selected_url, "duration": "03:00",
             "uploader": "ch", "check_var": FakeVar(True)}])
         app.queue_scroll = types.SimpleNamespace(populate_queue=lambda *a: None)
-        app.tabview = types.SimpleNamespace(set=lambda *a: None)
+        app.show_screen = lambda name: None
         app.update_queue_list_ui = lambda: None
         app.pending_added_during_batch = 0
         return app
@@ -343,6 +345,9 @@ class TestStopSuppressesConvertPulse:
             convert_pulse = 0
 
             def update_progress_loop(self):
+                pass
+
+            def sync_progress_extras(self, idx, item, status):
                 pass
 
             def after(self, *a):

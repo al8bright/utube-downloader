@@ -140,3 +140,188 @@ SEARCH_INITIAL_TEXT = "검색 결과가 없습니다. 키워드를 입력하고 
 
 
 SEARCH_NO_RESULT_TEXT = "일치하는 영상을 찾지 못했습니다. 다른 키워드로 검색해 보세요."
+
+
+# --------------------------------------------------------------------------
+# 대기열 요약·필터
+# --------------------------------------------------------------------------
+QUEUE_FILTERS = ("전체", "대기", "완료", "문제")
+
+
+def queue_bucket(item):
+    """대기열 항목을 필터 칩 분류로 나눈다.
+
+    중단된 곡은 다시 받을 수 있으므로 '대기' 로 센다.
+    재생목록처럼 막힌 항목은 status 가 failed 가 아니어도 '문제' 다.
+    """
+    status = item.get('status')
+    if item.get('blocked') or status == 'failed':
+        return "문제"
+    if status == 'finished':
+        return "완료"
+    if status in ('waiting', 'stopped'):
+        return "대기"
+    return "진행"
+
+
+def summarize_queue(items):
+    """분류별 개수. 없는 분류도 0 으로 담아 화면이 키를 찾다 죽지 않게 한다."""
+    counts = {"대기": 0, "진행": 0, "완료": 0, "문제": 0}
+    for item in items:
+        counts[queue_bucket(item)] += 1
+    counts["전체"] = len(items)
+    return counts
+
+
+def describe_queue_summary(items, unit="곡"):
+    """제목 옆 요약 문구. 0 인 분류는 적지 않는다."""
+    counts = summarize_queue(items)
+    if not counts["전체"]:
+        return "비어 있음"
+    parts = [f"{counts['전체']}{unit}"]
+    for key, label in (("대기", "대기"), ("진행", "받는 중"), ("완료", "완료"), ("문제", "문제")):
+        if counts[key]:
+            parts.append(f"{label} {counts[key]}")
+    return " · ".join(parts)
+
+
+def filter_queue_indices(items, bucket):
+    """필터 칩에 해당하는 항목의 원래 인덱스. 제거 버튼이 원래 인덱스를 써야 한다."""
+    if bucket in (None, "전체"):
+        return list(range(len(items)))
+    return [i for i, item in enumerate(items) if queue_bucket(item) == bucket]
+
+
+def describe_queue_status(item):
+    """대기열 항목의 상태 문구와 보조 사유. (문구, 사유 또는 None)"""
+    status = item.get('status')
+    if item.get('blocked'):
+        return "받지 않음", item.get('error')
+    if status == 'failed':
+        return "실패", item.get('error')
+    return {
+        'waiting': "대기 중",
+        'analyzing': "분석 중…",
+        'downloading': "다운로드 중",
+        'converting': "변환 중…",
+        'finished': "완료",
+        'stopped': "사용자 중단",
+    }.get(status, "대기 중"), None
+
+
+# --------------------------------------------------------------------------
+# 받은 파일 목록
+# --------------------------------------------------------------------------
+FILE_SORTS = {"최근 받은 순": "recent", "이름 순": "name", "크기 순": "size"}
+
+
+def format_size(num_bytes):
+    """파일 크기를 짧게. 100 이상이면 소수점을 버려 열 폭을 일정하게 한다."""
+    try:
+        size = float(num_bytes)
+    except (TypeError, ValueError):
+        return "-"
+    if size < 0:
+        return "-"
+    for unit in ("B", "KB", "MB"):
+        if size < 1024:
+            if unit == "B":
+                return f"{int(size)}B"
+            return f"{size:.0f}{unit}" if size >= 100 else f"{size:.1f}{unit}"
+        size /= 1024
+    return f"{size:.0f}GB" if size >= 100 else f"{size:.1f}GB"
+
+
+def format_file_date(timestamp, now=None):
+    """받은 날 표시. 오늘·어제는 시각까지, 올해는 월·일, 그 전은 연도까지."""
+    import datetime
+
+    try:
+        when = datetime.datetime.fromtimestamp(float(timestamp))
+    except (TypeError, ValueError, OverflowError, OSError):
+        return "-"
+    now = now or datetime.datetime.now()
+    days = (now.date() - when.date()).days
+    if days == 0:
+        return f"오늘 {when:%H:%M}"
+    if days == 1:
+        return f"어제 {when:%H:%M}"
+    if when.year == now.year:
+        return f"{when.month}월 {when.day}일"
+    return f"{when.year}. {when.month}. {when.day}."
+
+
+def filter_sort_files(entries, query="", ext=None, sort="recent"):
+    """파일 목록을 이름·형식으로 거르고 정렬한다.
+
+    entries 는 {'name', 'ext', 'size', 'mtime'} 사전의 목록이다.
+    ext 는 'MP3' 처럼 대문자이고, None 이나 '전체' 면 거르지 않는다.
+    """
+    needle = (query or "").strip().lower()
+    picked = [
+        e for e in entries
+        if (not needle or needle in e['name'].lower())
+        and (ext in (None, "전체") or e['ext'] == ext)
+    ]
+    if sort == "name":
+        picked.sort(key=lambda e: e['name'].lower())
+    elif sort == "size":
+        picked.sort(key=lambda e: e['size'], reverse=True)
+    else:
+        picked.sort(key=lambda e: e['mtime'], reverse=True)
+    return picked
+
+
+# --------------------------------------------------------------------------
+# 검색 결과
+# --------------------------------------------------------------------------
+SEARCH_LIMIT = 100        # 한 번에 찾는 최대 개수
+SEARCH_BATCH = 20         # 이만큼 모이면 바로 화면에 붙인다 (유튜브 한 페이지 분량)
+
+
+SEARCH_LOADING_TEXT = "유튜브에서 찾는 중…"
+
+
+def search_result_from_entry(entry):
+    """검색 결과 한 건을 화면용 사전으로 바꾼다. 영상이 아니면 None.
+
+    유튜브 검색에는 채널·재생목록도 섞여 나온다. 그대로 담으면
+    대기열에서 '재생목록은 받을 수 없음' 으로 막히므로 여기서 거른다.
+    """
+    video_id = entry.get('id') or ''
+    ie_key = entry.get('ie_key')
+    if (ie_key and ie_key != 'Youtube') or len(video_id) != 11:
+        return None
+    url = entry.get('url') or ''
+    if 'watch?' not in url and '/shorts/' not in url:
+        url = f"https://www.youtube.com/watch?v={video_id}"
+    return {
+        'title': entry.get('title') or 'Unknown Title',
+        'url': url,
+        'duration': format_duration(entry.get('duration')),
+        'uploader': entry.get('uploader') or entry.get('channel') or 'Unknown',
+        # hqdefault 는 4:3 에 위아래 검은 띠가 든 이미지라 16:9 칸에서 찌그러진다.
+        # mqdefault 는 320x180 원본 16:9 라 자르지 않아도 맞고 용량도 작다.
+        'thumbnail': f"https://i.ytimg.com/vi/{video_id}/mqdefault.jpg",
+    }
+
+
+def display_text(text):
+    """화면에 그릴 글자만 남긴다. 데이터(파일 이름·링크)는 바꾸지 않는다.
+
+    Tk 8.6 은 이모지를 그리지 못해 빈 네모로 나오고, 맑은 고딕에 없는 글자를 처음 만나면
+    시스템 글꼴을 전부 뒤져 제목 하나에 0.3초씩 멈췄다.
+    - '𝑷𝒍𝒂𝒚' 같은 장식용 수학 글자는 NFKC 로 'Play' 가 된다
+    - 이모지처럼 기본 다국어 평면(U+FFFF) 밖의 글자와 이모지 결합 문자는 뺀다
+    """
+    import unicodedata
+
+    if not text:
+        return text or ""
+    normalized = unicodedata.normalize("NFKC", text)
+    kept = "".join(
+        ch for ch in normalized
+        if ord(ch) <= 0xFFFF and ch not in "\u200d\ufe0e\ufe0f"
+    )
+    # 이모지를 빼고 남은 겹빈칸을 하나로
+    return " ".join(kept.split())
