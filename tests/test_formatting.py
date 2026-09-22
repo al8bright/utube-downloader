@@ -146,3 +146,116 @@ class TestDialogWidth:
         width, height = fmt.measure_error_dialog("")
         assert width >= fmt.DIALOG_MIN_WIDTH
         assert height >= fmt.DIALOG_MIN_HEIGHT
+
+
+# ==========================================================================
+# 사이드바 개편: 대기열 요약·필터
+# ==========================================================================
+class TestQueueSummary:
+    ITEMS = [
+        {"status": "finished"},
+        {"status": "waiting"},
+        {"status": "stopped"},
+        {"status": "downloading"},
+        {"status": "failed", "error": "연령 제한"},
+        {"status": "failed", "blocked": True, "error": "재생목록"},
+    ]
+
+    def test_중단된_곡은_다시_받을_수_있어_대기로_센다(self):
+        assert fmt.queue_bucket({"status": "stopped"}) == "대기"
+
+    def test_차단된_항목은_문제로_센다(self):
+        assert fmt.queue_bucket({"status": "waiting", "blocked": True}) == "문제"
+
+    def test_분류별_개수(self):
+        counts = fmt.summarize_queue(self.ITEMS)
+        assert counts == {"전체": 6, "대기": 2, "진행": 1, "완료": 1, "문제": 2}
+
+    def test_요약_문구는_0인_분류를_뺀다(self):
+        text = fmt.describe_queue_summary([{"status": "waiting"}, {"status": "finished"}])
+        assert text == "2곡 · 대기 1 · 완료 1"
+
+    def test_빈_대기열(self):
+        assert fmt.describe_queue_summary([]) == "비어 있음"
+
+    def test_필터는_원래_인덱스를_돌려준다(self):
+        assert fmt.filter_queue_indices(self.ITEMS, "문제") == [4, 5]
+        assert fmt.filter_queue_indices(self.ITEMS, "전체") == list(range(6))
+
+    def test_실패_사유를_함께_돌려준다(self):
+        assert fmt.describe_queue_status(self.ITEMS[4]) == ("실패", "연령 제한")
+        assert fmt.describe_queue_status(self.ITEMS[5]) == ("받지 않음", "재생목록")
+        assert fmt.describe_queue_status({"status": "waiting"}) == ("대기 중", None)
+
+
+class TestFileList:
+    def test_크기_표시(self):
+        assert fmt.format_size(500) == "500B"
+        assert fmt.format_size(9.8 * 1024 * 1024) == "9.8MB"
+        assert fmt.format_size(212 * 1024 * 1024) == "212MB"
+        assert fmt.format_size(None) == "-"
+
+    def test_날짜_표시(self):
+        import datetime
+        now = datetime.datetime(2026, 9, 23, 12, 0)
+        ts = lambda *a: datetime.datetime(*a).timestamp()
+        assert fmt.format_file_date(ts(2026, 9, 23, 9, 5), now) == "오늘 09:05"
+        assert fmt.format_file_date(ts(2026, 9, 22, 21, 40), now) == "어제 21:40"
+        assert fmt.format_file_date(ts(2026, 3, 1, 0, 0), now) == "3월 1일"
+        assert fmt.format_file_date(ts(2025, 12, 31, 0, 0), now) == "2025. 12. 31."
+        assert fmt.format_file_date("x", now) == "-"
+
+    ENTRIES = [
+        {"name": "b 노래.mp3", "ext": "MP3", "size": 10, "mtime": 3},
+        {"name": "A 노래.flac", "ext": "FLAC", "size": 30, "mtime": 1},
+        {"name": "c 다른곡.mp3", "ext": "MP3", "size": 20, "mtime": 2},
+    ]
+
+    def names(self, entries):
+        return [e["name"] for e in entries]
+
+    def test_기본은_최근_받은_순(self):
+        assert self.names(fmt.filter_sort_files(self.ENTRIES)) == ["b 노래.mp3", "c 다른곡.mp3", "A 노래.flac"]
+
+    def test_이름_크기_정렬(self):
+        assert self.names(fmt.filter_sort_files(self.ENTRIES, sort="name"))[0] == "A 노래.flac"
+        assert self.names(fmt.filter_sort_files(self.ENTRIES, sort="size"))[0] == "A 노래.flac"
+
+    def test_이름과_형식으로_거른다(self):
+        assert self.names(fmt.filter_sort_files(self.ENTRIES, query="노래")) == ["b 노래.mp3", "A 노래.flac"]
+        assert self.names(fmt.filter_sort_files(self.ENTRIES, ext="FLAC")) == ["A 노래.flac"]
+        assert len(fmt.filter_sort_files(self.ENTRIES, ext="전체")) == 3
+
+
+class TestSearchResultFromEntry:
+    def test_영상은_화면용_사전으로_바뀐다(self):
+        r = fmt.search_result_from_entry({
+            "ie_key": "Youtube", "id": "V2Mzp7ewg9M", "title": "곡",
+            "url": "https://www.youtube.com/watch?v=V2Mzp7ewg9M", "duration": 220,
+            "channel": "채널"})
+        assert r["duration"] == "03:40"
+        assert r["uploader"] == "채널"
+        assert r["thumbnail"].endswith("/V2Mzp7ewg9M/mqdefault.jpg"), "4:3 썸네일은 16:9 칸에서 찌그러진다"
+
+    def test_채널과_재생목록은_거른다(self):
+        assert fmt.search_result_from_entry(
+            {"ie_key": "YoutubeTab", "id": "UC3SyT4_WLHzN7JmHQwKQZww", "title": "채널"}) is None
+        assert fmt.search_result_from_entry({"id": "PLabc", "title": "목록"}) is None
+
+    def test_링크가_없으면_영상_ID로_만든다(self):
+        r = fmt.search_result_from_entry({"id": "V2Mzp7ewg9M", "url": "V2Mzp7ewg9M"})
+        assert r["url"] == "https://www.youtube.com/watch?v=V2Mzp7ewg9M"
+        assert r["duration"] == fmt.UNKNOWN_TIME
+
+
+class TestDisplayText:
+    def test_장식용_수학_글자는_보통_글자로(self):
+        assert fmt.display_text("𝑷𝒍𝒂𝒚𝒍𝒊𝒔𝒕 아이유") == "Playlist 아이유"
+
+    def test_이모지와_결합_문자는_뺀다(self):
+        assert fmt.display_text("[IU TV] 소울메이트👯\u200d♀️") == "[IU TV] 소울메이트♀"
+        assert fmt.display_text("속보📢 전세계 💘아이유") == "속보 전세계 아이유"
+
+    def test_보통_제목은_그대로(self):
+        title = "IU '이 별로부터(Unknown Planet)' MV [가사/Lyrics] ♥"
+        assert fmt.display_text(title) == title

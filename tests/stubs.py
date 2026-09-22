@@ -117,6 +117,8 @@ class FakeSearchFrame:
         self.search_widgets = []
         self.search_results_data = []
         self.render_job = None
+        self._items = []
+        self._next_row = 0
         self.rendered_rows = []
         self.after_queue = []
         self.job_seq = 0
@@ -138,6 +140,9 @@ class FakeSearchFrame:
     # 실제 클래스의 메서드를 그대로 빌려 쓴다
     cancel_render = ScrollableSearchFrame.cancel_render
     _render_chunk = ScrollableSearchFrame._render_chunk
+    _add_data = ScrollableSearchFrame._add_data
+    append_results = ScrollableSearchFrame.append_results
+    populate_results = ScrollableSearchFrame.populate_results
 
     class Row:
         def destroy(self):
@@ -170,6 +175,9 @@ class FakeSearchApp:
 
     def show_error(self, msg):
         self.errors.append(msg)
+
+    def set_search_progress(self, value, text):
+        self.progress = (value, text)
 
     def search_thread_target(self, query, generation):
         pass

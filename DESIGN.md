@@ -1,375 +1,198 @@
-# Lamborghini.com — Style Reference
-> Showroom black with one yellow car under spotlights
-
-**Theme:** mixed
-
-Lamborghini's design language is automotive theater: a cinematic dark stage where Giallo yellow punctuates an otherwise black-and-white world. The interface alternates between full-bleed dark hero canvases (where video and product photography dominate) and quiet light-gray content surfaces (where editorial storytelling takes over). Typography is the loudest element — an industrial custom sans-serif (LamboType) spoken only in UPPERCASE, scaled aggressively to 80–120px for hero statements. Components are minimal and structural: no rounded cards, no soft shadows, no decorative gradients — just hard-edged surfaces, hairline rules, and one vivid yellow action button. The overall feeling is gallery-grade restraint interrupted by a single confident color hit, the way a matte black showroom is broken by one yellow car under a spotlight.
-
-## Tokens — Colors
-
-| Name | Value | Token | Role |
-|------|-------|-------|------|
-| Giallo Vivo | `#ffc000` | `--color-giallo-vivo` | Yellow supporting accent for decorative details and low-frequency emphasis. Do not promote it to the primary CTA color |
-| Giallo Ombra | `#917300` | `--color-giallo-ombra` | Hover or secondary yellow state, list markers with brand accent — darker mustard variant of the primary |
-| Carbony Black | `#202020` | `--color-carbony-black` | Primary text, dark hero canvases, navigation bar — the workhorse near-black used at 1400+ occurrences |
-| Pure Black | `#000000` | `--color-pure-black` | Body copy, footer ink, icon strokes on light surfaces — maximum contrast text and absolute dark |
-| Carbon Deep | `#181818` | `--color-carbon-deep` | Headline color on light surfaces, dark surface variant, link ink — slightly warmer alternative to pure black |
-| Pearl White | `#ffffff` | `--color-pearl-white` | Page canvas, light card surface, button text on dark, hero text overlay — dominant light surface |
-| Marble Gray | `#f5f5f5` | `--color-marble-gray` | Alternate section background, body container fill, badge surface — the off-white that breaks up the white-white rhythm |
-| Graphite Border | `#494949` | `--color-graphite-border` | Section dividers, link ink on light backgrounds, mid-weight borders |
-| Steel Mid | `#7d7d7d` | `--color-steel-mid` | Button border outlines, secondary link text, muted UI chrome |
-| Ash Border | `#969696` | `--color-ash-border` | Light borders, disabled states, tertiary dividers on white surfaces |
-| Anvil | `#313131` | `--color-anvil` | Body copy variant, dark border accent — sits between Carbony Black and deeper neutrals |
-
-## Tokens — Typography
-
-### LamboType — Exclusive brand typeface used at all hierarchy levels. Renders always in UPPERCASE for editorial weight, with a consistent 0.0230em letter-spacing across all sizes — the spacing is wide enough to feel engineered, not cramped. Display sizes reach 120px with tight 0.92–1.00 line-height so headlines stack into monolithic typographic blocks. The single weight (400) at radically different sizes (10px labels → 120px display) is the signature: the system achieves voice through scale contrast, never weight contrast. · `--font-lambotype`
-- **Substitute:** Barlow Condensed (closest open equivalent for the tall industrial feel); Rajdhani as a fallback; Bebas Neue for display-only contexts
-- **Weights:** 400
-- **Sizes:** 10px, 12px, 16px, 18px, 27px, 32px, 40px, 54px, 80px, 120px
-- **Line height:** 0.92, 1.00, 1.13, 1.15, 1.19, 1.37, 1.38, 1.50, 1.56, 1.63, 1.83, 2.00
-- **Letter spacing:** 0.0230em across all sizes — applied uniformly to labels (12px), body (16px), and display (120px) alike, giving every text node an engineered, spaced-out rhythm
-- **Role:** Exclusive brand typeface used at all hierarchy levels. Renders always in UPPERCASE for editorial weight, with a consistent 0.0230em letter-spacing across all sizes — the spacing is wide enough to feel engineered, not cramped. Display sizes reach 120px with tight 0.92–1.00 line-height so headlines stack into monolithic typographic blocks. The single weight (400) at radically different sizes (10px labels → 120px display) is the signature: the system achieves voice through scale contrast, never weight contrast.
-
-### Open Sans — Rare fallback or supplementary body text at 16px, normal letter-spacing — only used in 3 occurrences, effectively vestigial; do not introduce for new pages · `--font-open-sans`
-- **Substitute:** system-ui
-- **Weights:** 400
-- **Sizes:** 16px
-- **Line height:** 1.50
-- **Role:** Rare fallback or supplementary body text at 16px, normal letter-spacing — only used in 3 occurrences, effectively vestigial; do not introduce for new pages
-
-### Type Scale
-
-| Role | Size | Line Height | Letter Spacing | Token |
-|------|------|-------------|----------------|-------|
-| caption | 10px | 1.5 | 0.23px | `--text-caption` |
-| body | 16px | 1.5 | 0.37px | `--text-body` |
-| subheading | 18px | 1.5 | 0.41px | `--text-subheading` |
-| heading-sm | 27px | 1.37 | 0.62px | `--text-heading-sm` |
-| heading | 32px | 1.38 | 0.74px | `--text-heading` |
-| heading-lg | 40px | 1.19 | 0.92px | `--text-heading-lg` |
-| display | 54px | 1.13 | 1.24px | `--text-display` |
-| display-lg | 80px | 1 | 1.84px | `--text-display-lg` |
-| hero | 120px | 0.92 | 2.76px | `--text-hero` |
-
-## Tokens — Spacing & Shapes
-
-**Base unit:** 8px
-
-**Density:** comfortable
-
-### Spacing Scale
-
-| Name | Value | Token |
-|------|-------|-------|
-| 8 | 8px | `--spacing-8` |
-| 16 | 16px | `--spacing-16` |
-| 24 | 24px | `--spacing-24` |
-| 32 | 32px | `--spacing-32` |
-| 40 | 40px | `--spacing-40` |
-| 48 | 48px | `--spacing-48` |
-| 56 | 56px | `--spacing-56` |
-| 64 | 64px | `--spacing-64` |
-| 80 | 80px | `--spacing-80` |
-| 160 | 160px | `--spacing-160` |
-
-### Border Radius
-
-| Element | Value |
-|---------|-------|
-| cards | 0px |
-| badges | 0px |
-| images | 0px |
-| buttons | 0px |
-
-### Layout
-
-- **Page max-width:** 1440px
-- **Section gap:** 80px
-- **Card padding:** 24px
-- **Element gap:** 24px
-
-## Components
-
-### Hero Stage
-**Role:** Full-bleed cinematic opener with video or photographic background
-
-Full-viewport dark canvas (#202020 or #000000) with overlaid white LamboType headline at 80–120px, uppercase, line-height ~0.92, letter-spacing 0.0230em. Eyebrow label at 12–16px sits above headline in same uppercase treatment. Yellow CTA button anchored bottom-left, pause/video control anchored bottom-right. Content sits in a left-aligned column, max 50% of viewport width.
-
-### Giallo Action Button
-**Role:** Primary call-to-action
-
-Solid #ffc000 background, no border, 0px radius, padding 16px 24px. LamboType 12–16px uppercase white text (#ffffff) with arrow icon (→) in 16px to the right of the label. Letter-spacing 0.0230em. No shadow. Sits as a hard rectangular block of yellow against dark or white surfaces — the only color in the interface, so it must dominate.
-
-### Ghost Link Button
-**Role:** Secondary action or text-link CTA
-
-No fill, no border. LamboType 12–16px uppercase text in #202020 or #ffffff depending on surface, with right-arrow icon. Letter-spacing 0.0230em. Used for less critical actions (model listings, editorial links). The arrow is the only visual anchor.
-
-### Outlined Nav Button
-**Role:** Tertiary button with border
-
-Transparent fill, 1px border in #7d7d7d or #969696, 0px radius, 12–16px LamboType uppercase text. Used sparingly in navigation or filter contexts where a middle-weight button is needed between Giallo solid and Ghost link.
-
-### Top Navigation Bar
-**Role:** Primary site navigation
-
-Fixed top bar at full width, #202020 background, ~64px height. Left: hamburger menu icon + 'MENU' label in white LamboType 12px. Center: bull logo in white. Right: camera icon + search icon. No visible border-bottom — the dark surface meets the hero directly.
-
-### Section Heading Block
-**Role:** Editorial section title with linked descriptor
-
-Two-column row: left side holds section name in LamboType 40–54px uppercase #202020 (#000000 on #f5f5f5), right side holds 'descubrir [topic]' link in LamboType 12px uppercase #202020 with right-arrow. Vertically centered, separated by generous whitespace. This is the signature section opener pattern.
-
-### Product Image Tile
-**Role:** Full-bleed product photograph
-
-0px radius, no border, no shadow — photographs run edge-to-edge within their grid cell. Caption sits below in LamboType 12–16px uppercase #202020 with a date stamp at 10–12px above the title. No rounded corners, no overlay UI.
-
-### Three-Column Story Grid
-**Role:** Editorial story or news grid
-
-Three equal-width columns with 24px gap. Each cell: date label (10–12px LamboType uppercase) above headline (16–27px LamboType uppercase), then a full-bleed image below at 0px radius. No card chrome — the image and text float directly on the white canvas with whitespace as the only separator.
-
-### Carousel Navigation Pips
-**Role:** Hero slide indicator and pause control
-
-Bottom-right of hero: two horizontal short lines (active + inactive) at ~40px width, 1–2px height, #ffffff, with a hexagonal pause button outlined in #ffffff. LamboType is not used here — these are pure iconographic elements. Spacing between pips: 24px.
-
-### Full-Bleed Editorial Image
-**Role:** Large product or lifestyle photograph
-
-100% width, 0px radius, no caption overlay. Photograph extends edge to edge of viewport. Used for car close-ups (leather stitching, badges) and lifestyle shots (circuit, landscape). The image does the talking — no frame, no shadow, no rounded corner.
-
-### Event Banner
-**Role:** Promotional or event announcement band
-
-Lighter photographic background with overlay text block at left. Headline at 54–80px LamboType uppercase white, supporting body at 16–18px uppercase white, then a Giallo CTA button below. Right side: implicit photographic content. Padding: 40px top/bottom.
-
-### Date Stamped Card
-**Role:** News or article entry
-
-White surface, 0px radius, no border. Date in LamboType 10–12px uppercase #7d7d7d or #969696. Headline in LamboType 16–18px uppercase #202020, 0.0230em letter-spacing. Followed by a 4:3 or 16:9 image at 0px radius. Padding: 24px.
-
-## Do's and Don'ts
-
-### Do
-- Render every heading in UPPERCASE LamboType at 0.0230em letter-spacing — no exceptions, this is the typographic voice
-- Use #ffc000 Giallo Vivo for exactly one element per screen, almost always the primary action button
-- Alternate between full-bleed #202020 dark surfaces and #ffffff/#f5f5f5 light surfaces section by section to create cinematic pacing
-- Scale display type aggressively: 80–120px for hero statements, 40–54px for section openers, 16–18px for body
-- Keep all radius values at 0px — hard edges are non-negotiable, from buttons to images to cards
-- Use 8px-base spacing multiples (8, 16, 24, 32, 40, 48, 64, 80px) — never break the grid with arbitrary values
-- Separate components with surface color contrast and whitespace, never with shadows or borders
-
-### Don't
-- Do not use rounded corners on any element — buttons, images, cards, and badges all sit at 0px radius
-- Do not introduce additional colors beyond #ffc000 and its #917300 variant — the 0% colorfulness is the brand
-- Do not add drop shadows, soft glows, or elevation effects — separation comes from surface color only
-- Do not use more than one weight of LamboType — it ships at 400 only; hierarchy comes from size and uppercase treatment
-- Do not place the Giallo yellow on more than one element per screen — it loses urgency as a signal
-- Do not use lowercase or sentence case for any display or heading text — UPPERCASE is mandatory at 16px and above
-- Do not apply letter-spacing values other than 0.0230em — the uniform tracking is what makes the type system feel engineered
-
-## Surfaces
-
-| Level | Name | Value | Purpose |
-|-------|------|-------|---------|
-| 0 | Canvas White | `#ffffff` | Default page background for editorial and content sections |
-| 1 | Marble | `#f5f5f5` | Alternate section background, subtle band separator from white canvas |
-| 2 | Carbony | `#202020` | Dark stage for full-bleed heroes, video backgrounds, and product showcase sections |
-| 3 | Carbon Deep | `#181818` | Navigation bar, footer, and slightly darker surface for layering above Carbony |
-| 4 | Pure Black | `#000000` | Terminal contrast surface, body ink, deepest text |
-
-## Elevation
-
-Lamborghini deliberately avoids drop shadows. All visual separation comes from surface color contrast (white → #f5f5f5 → #202020 → #000000) and hairline 1px borders. Components sit flat against the canvas like automotive body panels — no floating cards, no soft glows. This is a hard-edged, industrial aesthetic where shadow would feel decorative and weak.
-
-## Imagery
-
-Photography is the primary visual language and dominates the interface. Treatment is full-bleed and edge-to-edge with 0px radius — images are never cropped to rounded frames. The hero uses cinematic video and atmospheric photography (tunnels, headlights, road motion) on dark canvases. Product photography is tight, macro-grade detail: leather stitching, embroidered bull logos, body panel curves. Car lineup photography uses track and landscape backgrounds (Imola circuit, open road). Lifestyle and editorial imagery is high-contrast, low-key, often shot at dawn/dusk or in studio lighting. No illustration, no abstract graphics, no icons-as-decoration. Icons are minimal and white-on-dark line icons. The image-to-text ratio is high in heroes, balanced in editorial sections.
-
-## Layout
-
-The page model alternates between full-bleed dark stages and max-width (1440px) contained light sections. The hero is full-viewport with a centered or left-aligned text block sitting over a video/photographic background. Subsequent sections use a centered max-width container with left-aligned text in two-column rows (heading left, link right). Feature and story sections deploy 3-column image grids with 24px gap. Navigation is a fixed dark top bar (64px) with centered logo. Footer is full-width dark. Vertical rhythm uses 80px section gaps with 24px internal element spacing. The overall flow is: dark cinematic hero → light editorial band → dark product showcase → light story grid → dark footer. Sections rarely use visible dividers — surface color contrast alone defines the boundaries.
-
-## Agent Prompt Guide
-
-Quick Color Reference:
-- text: #202020 (primary on light), #ffffff (primary on dark)
-- background: #ffffff (light canvas), #202020 (dark stage)
-- border: #969696 (light hairlines), #494949 (darker dividers)
-- accent: #ffc000 (Giallo Vivo — single hit per screen)
-- primary action: no distinct CTA color
-
-Example Component Prompts:
-
-No distinct primary action color was observed; use the extracted neutral button treatments instead of inventing a filled CTA color.
-
-2. Create a section heading block: two-column row on #ffffff background. Left: section name at 54px LamboType weight 400, uppercase, #202020, letter-spacing 0.0230em. Right: discovery link at 12px LamboType weight 400, uppercase, #202020 with right-arrow icon. 80px padding top and bottom. No borders, no shadows.
-
-3. Create a three-column story grid: three equal columns with 24px gap on #ffffff. Each cell: date label at 10px LamboType weight 400, uppercase, #7d7d7d, then headline at 16px LamboType weight 400, uppercase, #202020, then a full-bleed photograph below at 0px radius. 64px section gap above the grid.
-
-
-5. Create a product image tile: full-bleed photograph at 0px radius, no border, no shadow. Below the image: caption in 12px LamboType weight 400, uppercase, #202020, letter-spacing 0.0230em. 24px padding around the tile content. Sits on #ffffff or #f5f5f5 surface.
-
-## Similar Brands
-
-- **Ferrari.com** — Same automotive-theater approach: dark cinematic hero with full-bleed video, monospace-tinged uppercase display type, single Rosso Corsa red accent against black-and-white palette, and 0px-radius hard edges throughout
-- **Porsche.com** — Shares the alternating dark hero / light editorial section rhythm, uppercase condensed-style display headlines at 80–120px scale, and a monochromatic palette punctuated by a single brand color (red for Porsche) on CTAs only
-- **Ducati.com** — Both lean into full-bleed dark product photography, uppercase custom sans-serif headlines with uniform letter-spacing, and a minimal component vocabulary — 0px radius buttons, hairline borders, no shadows
-- **Aston Martin** — Luxury automotive restraint: dark cinematic surfaces, uppercase editorial display type, a single accent color (British Racing Green or Aston Martin Green) used only on action elements, generous 80px section spacing
-- **McLaren Automotive** — Industrial engineering aesthetic: dark full-bleed hero stages, uppercase condensed display sans-serif, single vibrant accent (Papaya Orange) as the lone chromatic element, 0px-radius hard-edged component system
-
-## Quick Start
-
-### CSS Custom Properties
-
-```css
-:root {
-  /* Colors */
-  --color-giallo-vivo: #ffc000;
-  --color-giallo-ombra: #917300;
-  --color-carbony-black: #202020;
-  --color-pure-black: #000000;
-  --color-carbon-deep: #181818;
-  --color-pearl-white: #ffffff;
-  --color-marble-gray: #f5f5f5;
-  --color-graphite-border: #494949;
-  --color-steel-mid: #7d7d7d;
-  --color-ash-border: #969696;
-  --color-anvil: #313131;
-
-  /* Typography — Font Families */
-  --font-lambotype: 'LamboType', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-open-sans: 'Open Sans', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-
-  /* Typography — Scale */
-  --text-caption: 10px;
-  --leading-caption: 1.5;
-  --tracking-caption: 0.23px;
-  --text-body: 16px;
-  --leading-body: 1.5;
-  --tracking-body: 0.37px;
-  --text-subheading: 18px;
-  --leading-subheading: 1.5;
-  --tracking-subheading: 0.41px;
-  --text-heading-sm: 27px;
-  --leading-heading-sm: 1.37;
-  --tracking-heading-sm: 0.62px;
-  --text-heading: 32px;
-  --leading-heading: 1.38;
-  --tracking-heading: 0.74px;
-  --text-heading-lg: 40px;
-  --leading-heading-lg: 1.19;
-  --tracking-heading-lg: 0.92px;
-  --text-display: 54px;
-  --leading-display: 1.13;
-  --tracking-display: 1.24px;
-  --text-display-lg: 80px;
-  --leading-display-lg: 1;
-  --tracking-display-lg: 1.84px;
-  --text-hero: 120px;
-  --leading-hero: 0.92;
-  --tracking-hero: 2.76px;
-
-  /* Typography — Weights */
-  --font-weight-regular: 400;
-
-  /* Spacing */
-  --spacing-unit: 8px;
-  --spacing-8: 8px;
-  --spacing-16: 16px;
-  --spacing-24: 24px;
-  --spacing-32: 32px;
-  --spacing-40: 40px;
-  --spacing-48: 48px;
-  --spacing-56: 56px;
-  --spacing-64: 64px;
-  --spacing-80: 80px;
-  --spacing-160: 160px;
-
-  /* Layout */
-  --page-max-width: 1440px;
-  --section-gap: 80px;
-  --card-padding: 24px;
-  --element-gap: 24px;
-
-  /* Named Radii */
-  --radius-cards: 0px;
-  --radius-badges: 0px;
-  --radius-images: 0px;
-  --radius-buttons: 0px;
-
-  /* Surfaces */
-  --surface-canvas-white: #ffffff;
-  --surface-marble: #f5f5f5;
-  --surface-carbony: #202020;
-  --surface-carbon-deep: #181818;
-  --surface-pure-black: #000000;
-}
+# 디자인 가이드
+
+YouTube Music Downloader의 화면 규칙을 정리한 문서입니다.
+토큰 값은 `utube_downloader/theme.py`에만 정의하며, 이 문서는 그 값을 **어디에, 왜** 쓰는지 설명합니다.
+값을 바꿀 때는 `theme.py`를 먼저 고치고 이 문서를 맞춰 갱신합니다.
+
+> 출발점은 Lamborghini.com 스타일 레퍼런스(검은 무대 위 노란 차 한 대)입니다.
+> 웹 전용 요소(히어로 영상, 대형 디스플레이 서체, CSS 토큰 등)는 버리고 데스크톱 앱에 필요한 부분만 남겼습니다.
+
+---
+
+## 1. 원칙
+
+1. **진행 상황은 어디서나 보인다.** 어느 화면에 있든 사이드바 아래에서 지금 받는 곡과 전체 진행률을 볼 수 있습니다.
+2. **강조색은 노랑 하나.** 노랑은 주 동작과 "지금 진행 중"을 뜻할 때만 씁니다. 파랑·초록·빨강 같은 다른 색은 들이지 않습니다.
+3. **층은 밝기로 나눈다.** 그림자·글로우·그라데이션 없이 면의 명도 차이와 1px 테두리만으로 구분합니다.
+4. **모서리는 0.** 카드·버튼·입력창·행 모두 `corner_radius = 0`입니다. 예외는 앱 아이콘 하나이며, 아이콘 파일 자체가 둥근 모서리입니다.
+5. **상태는 색이 아니라 밝기로.** 완료는 가장 밝게, 진행 중은 중간, 대기는 흐리게 표시합니다.
+6. **리터럴 금지.** 위젯 코드에서는 색·서체·간격을 숫자로 쓰지 않고 `theme.py`의 토큰을 가져다 씁니다.
+
+---
+
+## 2. 화면 구성
+
+```
+┌──────────┬──────────────────────────────────────────┐
+│ 로고      │ 제목  요약                                 │
+│          │ 도구 줄 (검색창 · 설정 카드 · 필터 칩)       │
+│ 검색      │ ┌──────────────────────────────────────┐ │
+│ 대기열 ●  │ │ 목록 (열 머리글 + 스크롤 목록)          │ │
+│ ──────── │ │                                      │ │
+│ 음성      │ └──────────────────────────────────────┘ │
+│ 영상      │                                          │
+│          ├──────────────────────────────────────────┤
+│ 진행 요약  │ 하단 동작 바: 정리 동작 ……… 보조 · 주 동작  │
+└──────────┴──────────────────────────────────────────┘
 ```
 
-### Tailwind v4
+- **사이드바**(`SIDEBAR_WIDTH` 212px): 로고, 메뉴 4개, 메뉴별 개수, 진행 요약이 있습니다. 현재 메뉴는 왼쪽 3px 노랑 막대와 한 단계 밝은 배경으로 표시합니다. 받는 중에는 대기열 메뉴 옆에 노랑 점이 붙습니다.
+- **진행 요약**: 받는 중이고 대기열이 아닌 화면에 있을 때만 보입니다. 대기열 화면에서는 같은 정보가 "지금 받는 중" 카드로 크게 보이므로 숨깁니다.
+- **화면 4개**는 모두 같은 뼈대를 씁니다. 위에서부터 제목 → 도구 → 목록 → 하단 동작 바 순서입니다.
 
-```css
-@theme {
-  /* Colors */
-  --color-giallo-vivo: #ffc000;
-  --color-giallo-ombra: #917300;
-  --color-carbony-black: #202020;
-  --color-pure-black: #000000;
-  --color-carbon-deep: #181818;
-  --color-pearl-white: #ffffff;
-  --color-marble-gray: #f5f5f5;
-  --color-graphite-border: #494949;
-  --color-steel-mid: #7d7d7d;
-  --color-ash-border: #969696;
-  --color-anvil: #313131;
+| 화면 | 도구 줄 | 하단 동작 바 |
+| :--- | :--- | :--- |
+| 검색 | 검색창(키워드 또는 링크), "이미 담은 곡 숨기기" | 선택 개수 · **대기열에 추가** |
+| 대기열 | 받는 방법 카드, 지금 받는 중 카드, 전체 선택 · 필터 칩 · + 링크 추가 | 완료 항목 정리 · 대기열 비우기 ……… 선택한 N곡 받기 · **대기 중인 곡 모두 받기** (받는 중에는 다운로드 중단만) |
+| 음성 · 영상 | 파일 이름 찾기, 형식 칩(음성만), 정렬 | 저장 위치 ……… 목록 전체 삭제… |
 
-  /* Typography */
-  --font-lambotype: 'LamboType', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-open-sans: 'Open Sans', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+### 대기열의 세 구역
 
-  /* Typography — Scale */
-  --text-caption: 10px;
-  --leading-caption: 1.5;
-  --tracking-caption: 0.23px;
-  --text-body: 16px;
-  --leading-body: 1.5;
-  --tracking-body: 0.37px;
-  --text-subheading: 18px;
-  --leading-subheading: 1.5;
-  --tracking-subheading: 0.41px;
-  --text-heading-sm: 27px;
-  --leading-heading-sm: 1.37;
-  --tracking-heading-sm: 0.62px;
-  --text-heading: 32px;
-  --leading-heading: 1.38;
-  --tracking-heading: 0.74px;
-  --text-heading-lg: 40px;
-  --leading-heading-lg: 1.19;
-  --tracking-heading-lg: 0.92px;
-  --text-display: 54px;
-  --leading-display: 1.13;
-  --tracking-display: 1.24px;
-  --text-display-lg: 80px;
-  --leading-display-lg: 1;
-  --tracking-display-lg: 1.84px;
-  --text-hero: 120px;
-  --leading-hero: 0.92;
-  --tracking-hero: 2.76px;
+대기열은 기능이 가장 많은 화면이라 성격에 따라 나눕니다.
 
-  /* Spacing */
-  --spacing-8: 8px;
-  --spacing-16: 16px;
-  --spacing-24: 24px;
-  --spacing-32: 32px;
-  --spacing-40: 40px;
-  --spacing-48: 48px;
-  --spacing-56: 56px;
-  --spacing-64: 64px;
-  --spacing-80: 80px;
-  --spacing-160: 160px;
-}
-```
+1. **받는 방법**: 형식 · 음질 · 저장 위치를 모은 카드입니다. 모든 곡에 한 번에 적용되고, 받는 동안은 잠기며 "받는 동안은 바꿀 수 없습니다"가 뜹니다. 음질 칸은 FLAC·MP4에서 사라지지 않고 잠깁니다. 사라지면 옆 칸이 흔들리기 때문입니다.
+2. **지금 받는 중**: 받는 동안에만 노랑 테두리로 나타납니다. 곡 이름, 몇 번째인지, 단계(분석 → 다운로드 → 변환), 진행 바, 속도·남은 시간, 전체 진행률을 보여 줍니다. 끝나면 테두리가 회색으로 바뀌고 "지난 받기 결과"를 남깁니다. 대기열을 비우면 사라집니다.
+3. **목록과 실행**: 곡마다 번호 · 제목·채널 · 길이 · 상태를 열로 나누고, 실패 사유는 상태 밑에 적습니다. 실행 버튼은 하단 동작 바 한 곳에만 둡니다.
+
+---
+
+## 3. 색
+
+### 기본 팔레트
+
+| 토큰 | 값 | 이름 | 쓰임 |
+| :--- | :--- | :--- | :--- |
+| `C_GIALLO` | `#ffc000` | Giallo Vivo | 주 동작 버튼, 현재 곡 진행 바, 받는 중 카드 테두리, 현재 메뉴 막대, 받는 중 점 |
+| `C_GIALLO_SHADE` | `#917300` | Giallo Ombra | 노랑 버튼 호버, 실패 표시 |
+| `C_BG` | `#202020` | Carbony Black | 화면 배경, 현재 메뉴 배경 |
+| `C_SURFACE` | `#181818` | Carbon Deep | 사이드바, 받는 방법 카드, 하단 동작 바 |
+| `C_SURFACE_DEEP` | `#000000` | Pure Black | 목록 행, 입력창, 받는 중 카드, 노랑 위 글자 |
+| `C_PEARL` | `#ffffff` | Pearl White | 주 텍스트, 완료 상태, 전체 진행 바, 켜진 칩 테두리 |
+| `C_GRAPHITE` | `#494949` | Graphite | 입력창 테두리, 비활성, 호버, 진행 바 바탕 |
+| `C_STEEL` | `#7d7d7d` | Steel | 보조 버튼 테두리, 진행 중 상태, 열 머리글 |
+| `C_ASH` | `#969696` | Ash | 라벨·보조 텍스트 |
+
+노랑이 한 화면에 여러 번 나오더라도 뜻은 두 가지뿐입니다. **"이걸 누르세요"**(주 동작 버튼) 또는 **"지금 진행 중입니다"**(진행 바·테두리·막대·점)입니다. 목록 항목이나 태그처럼 반복되는 요소에는 노랑을 쓰지 않습니다.
+
+### 역할 별칭
+
+위젯 코드는 아래 이름을 씁니다. 팔레트를 바꿀 때 별칭의 연결만 고치면 됩니다.
+
+| 별칭 | 연결 | 의미 |
+| :--- | :--- | :--- |
+| `C_SUCCESS` | PEARL | 완료 |
+| `C_WARNING` | STEEL | 분석·변환 등 진행 중 |
+| `C_DANGER` | GIALLO_SHADE | 실패·중단 요청 |
+| `C_TEXT` / `C_TEXT_MUTED` / `C_TEXT_DIM` / `C_TEXT_FAINT` | PEARL / ASH / STEEL / GRAPHITE | 텍스트 4단계 |
+
+### 대기열 항목 상태
+
+문구는 `formatting.describe_queue_status`, 색은 `widgets/queue_list.queue_status_color`가 정합니다.
+
+| 상태 | 표시 | 색 | 필터 칩 |
+| :--- | :--- | :--- | :--- |
+| waiting | 대기 중 | `C_TEXT_DIM` | 대기 |
+| stopped | 사용자 중단 | `C_TEXT_MUTED` | 대기 (다시 받을 수 있음) |
+| analyzing / converting | 분석 중… / 변환 중… | `C_WARNING` | — |
+| downloading | 다운로드 중 62% | `C_PEARL` | — |
+| finished | 완료 | `C_SUCCESS` | 완료 |
+| failed | 실패 + 사유 | `C_DANGER` | 문제 |
+| blocked (재생목록 등) | 받지 않음 + 사유 | `C_STEEL` | 문제 |
+
+받는 중인 행은 1px `C_GRAPHITE` 테두리로 구분합니다. 완료된 행은 제목을 흐리게, 고를 수 없는 행(완료·차단·진행 중)은 체크박스를 잠급니다.
+
+### 파일 형식 태그
+
+`EXT_COLORS`가 정합니다. 목록에 수십 번 반복되므로 노랑을 쓰지 않고 밝기로만 구분합니다.
+
+| 형식 | 색 |
+| :--- | :--- |
+| MP3 | `C_ASH` |
+| FLAC | `C_PEARL` |
+| MP4 | `C_STEEL` |
+
+---
+
+## 4. 서체
+
+LamboType은 배포할 수 없어 Windows 기본 서체로 대체합니다.
+Bahnschrift에는 한글 글리프가 없으므로 한글이 들어가는 곳에는 모두 맑은 고딕을 씁니다.
+
+| 토큰 | 서체 · 크기 | 쓰임 |
+| :--- | :--- | :--- |
+| `FONT_WORDMARK` | Bahnschrift SemiBold Condensed 18 | 사이드바 로고 옆 영문 이름 |
+| `FONT_SCREEN_TITLE` | 맑은 고딕 20 bold | 화면 제목 (검색 · 대기열 · 음성 · 영상) |
+| `FONT_NAV` | 맑은 고딕 13 bold | 사이드바 메뉴 |
+| `FONT_HEADING` | 맑은 고딕 13 bold | 하단 동작 바 버튼, 받는 중 카드의 곡 이름 |
+| `FONT_ITEM` | 맑은 고딕 13 | 목록이 비었을 때 안내 |
+| `FONT_BODY_BOLD` / `FONT_BODY` | 맑은 고딕 12 | 목록 제목, 검색창, 파일 이름 |
+| `FONT_LABEL_BOLD` / `FONT_LABEL` | 맑은 고딕 11 | 작은 버튼, 칩, 상태, 요약 문구 |
+| `FONT_CAPTION` | 맑은 고딕 10 | 열 머리글, 실패 사유, 단계 표시 |
+
+- 굵기 대신 **크기 차이**로 위계를 만듭니다.
+- 영문 이름은 `tracked()`로 대문자 + 자간 흉내를 냅니다. 한글에는 쓰지 않습니다(가독성 저하).
+- Tk 라벨은 말줄임을 하지 않습니다. 사이드바 곡 이름, 받는 중 카드 제목, 파일 이름처럼 폭이 정해진 곳은 코드에서 글자 수로 잘라 "…"를 붙입니다.
+
+---
+
+## 5. 크기 · 간격 · 형태
+
+| 토큰 | 값 | 쓰임 |
+| :--- | :--- | :--- |
+| `WINDOW_SIZE` / `WINDOW_MIN` | 1000×840 / 920×680 | 창 기본 크기와 최소 크기 |
+| `SIDEBAR_WIDTH` | 212 | 사이드바 폭 |
+| `LOGO_SIZE` | 30 | 사이드바 로고 |
+| `PAD_S` / `PAD_M` / `PAD_L` | 8 / 16 / 24 | 8px 그리드. `PAD_L`은 화면 좌우 여백 |
+| `RADIUS_CARD`, `RADIUS_BUTTON` | 0 | 모든 모서리 |
+
+- 하단 동작 바는 높이 64px(`ui.ACTION_BAR_HEIGHT`)이고 좌우 여백 없이 창 끝까지 깝니다.
+- 목록 열 폭은 `QUEUE_COLUMNS`(대기열)와 `FILE_COLUMNS`(음성·영상)에 한 번만 정의합니다. 머리글 행과 목록 행이 같은 값을 써야 열이 맞습니다.
+- 오류 대화상자는 내용 길이에 맞춰 크기를 계산합니다(`formatting.py`). 폭 380–620px, 높이 180–560px 범위 안에서 한 글자 약 14px, 한 줄 22px, 여백·버튼 130px로 잡습니다(`DIALOG_*`).
+
+---
+
+## 6. 구성 요소
+
+`ui.py` 맨 위의 도우미 함수로 만듭니다. 새 화면을 만들 때도 이 함수를 씁니다.
+
+| 요소 | 함수 | 모양 |
+| :--- | :--- | :--- |
+| **주 동작 버튼** | `primary_button` | 면 `C_GIALLO`, 호버 `C_GIALLO_SHADE`, 글자 `C_SURFACE_DEEP` · `FONT_HEADING`, 높이 40. 화면마다 하나만 둡니다 |
+| **보조 버튼** | `outline_button` | 면 투명, 1px `C_STEEL` 테두리, 글자 `C_PEARL`, 호버 `C_GRAPHITE` |
+| **텍스트 버튼** | `text_button` | 테두리 없이 밑줄 글자 `C_ASH`. 정리·삭제처럼 되돌리기 어려운 동작에 쓰고, 주 동작과 반대쪽 끝에 둡니다 |
+| **필터 칩** | `chip`, `style_chip` | 높이 24, 1px `C_GRAPHITE` 테두리. 켜진 칩은 테두리와 글자가 `C_PEARL`. 글자에 개수를 붙입니다(`chip_text`) |
+| **입력창** | `entry` | 면 `C_SURFACE_DEEP`, 1px `C_GRAPHITE` 테두리 |
+| **목록 행** | 각 목록 위젯 | 면 `C_SURFACE_DEEP`, 행 간격 2px. 고른 검색 결과는 1px `C_STEEL` 테두리 |
+| **진행 바** | — | 바탕 `C_GRAPHITE`. 현재 곡은 `C_GIALLO` 8px, 전체 진행은 `C_PEARL` 3px |
+| **단계 표시** | `app.set_now_step` | 분석 → 다운로드 → 변환. 현재 단계만 흰 블록, 지난 단계는 "✓" |
+| **사이드바 메뉴** | `widgets/sidebar.NavItem` | 높이 42. 현재 메뉴는 3px 노랑 막대 + `C_BG` 배경 + 흰 글자 |
+| **검색 결과 행** | `widgets/search_list` | 높이 72. 체크 · 16:9 썸네일(96×54, 오른쪽 아래에 검은 바탕의 재생 시간) · 제목 최대 두 줄 · 채널 · 재생 버튼. 행 어디를 눌러도 체크가 바뀝니다 |
+| **검색 진행 줄** | `app.set_search_progress` | 검색창 아래 3px `C_GIALLO` 막대. 첫 결과 전에는 좌우로 움직이고, 이후에는 받은 개수만큼 찹니다 |
+
+### 받는 중에 잠그는 것
+
+`LOCKED_WIDGETS`에 등록된 위젯은 받는 동안 잠깁니다. 형식·음질·저장 위치, 선택·전체 받기, 대기열 정리·비우기, 전체 선택, 음성·영상 목록 전체 삭제가 대상입니다. 대기열 행의 체크박스와 제거 버튼도 함께 잠급니다.
+
+**검색과 대기열에 담기는 잠그지 않습니다.** 받는 동안 다음 곡을 고를 수 있어야 사이드바 구성이 의미가 있습니다. 이때 담은 곡은 이번 배치에 포함되지 않는다고 안내합니다.
+
+잠글 위젯을 새로 만들면 이 목록에 이름을 추가합니다(이름 오타는 테스트가 잡습니다).
+
+### 긴 목록을 부드럽게
+
+- **많이 반복되는 목록은 캔버스에 그립니다.** 검색 결과처럼 100행 가까운 목록을 CTk 위젯으로 만들면 창(윈도 핸들)이 천 개를 넘어 스크롤과 창 크기 조정이 버벅입니다. 검색 결과는 캔버스 하나 위의 도형·글자·이미지로 그립니다.
+- **받는 대로 조금씩 보여 줍니다.** 검색 결과는 20개씩 받는 대로 붙이고, 행은 2개씩 나눠 그려 한 번에 오래 멈추지 않게 합니다.
+- **안 보이는 화면은 배치에서 뺍니다.** 화면 전환은 `grid_remove`로 합니다. 겹쳐 두기만 하면 창 크기를 바꿀 때 안 보이는 화면까지 다시 배치합니다.
+- **화면에 그리는 글자는 `display_text`를 거칩니다.** 이모지와 장식용 수학 글자(𝑷𝒍𝒂𝒚)는 Tk가 그리지 못하고, 처음 만날 때 글꼴을 찾느라 0.3초씩 멈춥니다. 데이터(파일 이름·링크)는 바꾸지 않습니다.
+- **썸네일은 16:9 원본(`mqdefault`)을 쓰고 `ImageOps.fit`으로 자릅니다.** 늘리거나 줄여 비율을 맞추지 않습니다.
+
+---
+
+## 7. 하지 말 것
+
+- 목록 항목이나 태그처럼 반복되는 요소에 노랑을 쓰지 않습니다.
+- 팔레트 밖의 색(파랑·초록·빨강 등)을 새로 들이지 않습니다. 실패도 빨강이 아니라 `C_DANGER`(Giallo Ombra)로 표시합니다.
+- 둥근 모서리, 그림자, 그라데이션을 쓰지 않습니다. 앱 아이콘만 예외입니다.
+- 실행 버튼을 화면 위쪽이나 목록 안에 흩어 두지 않습니다. 하단 동작 바 한 곳에 모읍니다.
+- 설정 칸을 상황에 따라 숨겼다 보였다 하지 않습니다. 쓸 수 없을 때는 잠급니다.
+- 위젯 코드에 `#xxxxxx`나 서체 튜플을 직접 쓰지 않습니다.
+- 한글에 `tracked()`나 Bahnschrift를 쓰지 않습니다.

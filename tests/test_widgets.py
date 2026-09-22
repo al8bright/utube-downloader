@@ -43,6 +43,9 @@ class TestProgressiveRender:
             def pack(self, **k):
                 pass
 
+            def place(self, **k):
+                pass
+
         monkeypatch.setattr(app_module.ctk, "CTkLabel", FakeLabel)
         ScrollableSearchFrame.populate_results(frame, [])
         assert frame.search_results_data == []
@@ -59,6 +62,9 @@ class TestProgressiveRender:
                 pass
 
             def pack(self, **k):
+                pass
+
+            def place(self, **k):
                 pass
 
         monkeypatch.setattr(app_module.ctk, "CTkLabel", FakeLabel)
@@ -114,6 +120,9 @@ class TestRenderRobustness:
             def pack(self, **k):
                 pass
 
+            def place(self, **k):
+                pass
+
         monkeypatch.setattr(app_module.ctk, "CTkLabel", FakeLabel)
         ScrollableSearchFrame.populate_results(
             frame, [], empty_text=app_module.SEARCH_NO_RESULT_TEXT)
@@ -135,3 +144,69 @@ class TestSingleDialog:
         src = inspect.getsource(app_module.YoutubeDownloaderApp.show_error)
         assert "_error_win" in src, "창을 추적하지 않으면 대화상자가 계속 쌓인다"
         assert "merge_error_messages" in src
+
+
+# ==========================================================================
+# 검색 결과를 받는 대로 이어 붙이기
+# ==========================================================================
+class TestAppendResults:
+    def _results(self, start, n):
+        return [{"title": f"곡{i}", "url": f"u{i}", "duration": "03:00",
+                 "uploader": "ch", "thumbnail": None} for i in range(start, start + n)]
+
+    def _frame(self, monkeypatch):
+        monkeypatch.setattr(app_module.ctk, "BooleanVar", lambda value=False: {"v": value})
+        return FakeSearchFrame()
+
+    def test_이어_붙인_결과도_끝까지_그려진다(self, monkeypatch):
+        frame = self._frame(monkeypatch)
+        frame.populate_results(self._results(0, 20))
+        frame.drain()
+        frame.append_results(self._results(20, 20))
+        frame.drain()
+        assert frame.rendered_rows == list(range(40)), "앞서 그린 행은 다시 그리지 않고 뒤만 붙인다"
+        assert len(frame.search_results_data) == 40
+
+    def test_그리는_도중에_붙여도_중복_없이_이어진다(self, monkeypatch):
+        frame = self._frame(monkeypatch)
+        frame.populate_results(self._results(0, 20))
+        frame.append_results(self._results(20, 20))   # 첫 페이지를 아직 다 못 그린 상태
+        frame.drain()
+        assert frame.rendered_rows == list(range(40))
+
+    def test_비어_있으면_처음부터_채운다(self, monkeypatch):
+        frame = self._frame(monkeypatch)
+        frame.append_results(self._results(0, 5))
+        frame.drain()
+        assert frame.rendered_rows == list(range(5))
+
+
+class TestThumbnailFit:
+    def test_4대3_이미지도_찌그러지지_않고_16대9로_잘린다(self):
+        from PIL import Image
+        from utube_downloader.widgets.search_list import THUMB_SIZE, fit_thumbnail
+
+        # 4:3 에 위아래 검은 띠가 든 옛 hqdefault 모양
+        image = Image.new("RGB", (480, 360), "black")
+        image.paste(Image.new("RGB", (480, 270), "white"), (0, 45))
+        fitted = fit_thumbnail(image, THUMB_SIZE)
+        assert fitted.size == THUMB_SIZE
+        assert fitted.getpixel((THUMB_SIZE[0] // 2, THUMB_SIZE[1] // 2)) == (255, 255, 255)
+
+
+class TestTitleClip:
+    def test_짧은_제목은_그대로(self):
+        from utube_downloader.widgets.search_list import clip_to_lines
+        assert clip_to_lines("IU 'Holssi' Live Clip", 400, 12) == "IU 'Holssi' Live Clip"
+
+    def test_긴_제목은_두_줄_분량에서_자른다(self):
+        from utube_downloader.widgets.search_list import char_units, clip_to_lines
+        title = "좋아하는 걸 한 줄 알았는데 잘하는 걸 했구나 " * 6
+        clipped = clip_to_lines(title, 300, 12)
+        assert clipped.endswith("…")
+        units = sum(char_units(ch) for ch in clipped[:-1])
+        assert units * 12 <= 2 * 300, "두 줄을 넘으면 아래 행을 덮는다"
+
+    def test_라틴_문자는_한글보다_좁게_센다(self):
+        from utube_downloader.widgets.search_list import char_units
+        assert char_units("a") < char_units("가")

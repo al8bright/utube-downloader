@@ -4,6 +4,7 @@
 여기서는 상태와 스레드, 그리고 생명주기만 다룬다.
 """
 import os
+import sys
 import threading
 import time
 from tkinter import filedialog, messagebox
@@ -13,33 +14,44 @@ import yt_dlp
 
 from .downloader import build_ydl_opts, describe_download_error
 from .formatting import (
-    BR, SEARCH_NO_RESULT_TEXT, SEARCH_TIMEOUT_MS, UNKNOWN_TIME,
+    BR, FILE_SORTS, SEARCH_BATCH, SEARCH_LIMIT, SEARCH_LOADING_TEXT,
+    SEARCH_NO_RESULT_TEXT, SEARCH_TIMEOUT_MS, UNKNOWN_TIME,
     batch_progress_value, describe_batch_detail, describe_batch_result,
-    describe_postprocess_stage, format_duration, format_eta,
-    measure_error_dialog, merge_error_messages,
+    describe_postprocess_stage, describe_queue_summary, filter_sort_files,
+    format_duration, format_eta, format_size, measure_error_dialog, merge_error_messages,
+    search_result_from_entry, summarize_queue,
 )
 from .storage import cleanup_temp_dir, resolve_save_dir
 from .theme import (
-    C_ACCENT, C_BG, C_DANGER, C_GIALLO, C_GRAPHITE, C_PEARL, C_SUCCESS,
-    C_SURFACE_DEEP, C_TEXT_MUTED, C_WARNING,
+    C_ASH, C_BG, C_DANGER, C_GIALLO, C_GRAPHITE, C_PEARL, C_STEEL, C_SUCCESS,
+    C_SURFACE_DEEP, C_TEXT_MUTED,
     DIALOG_MIN_HEIGHT, DIALOG_MIN_WIDTH, FONT_BODY, LOCKED_WIDGETS, RADIUS_BUTTON,
+    WINDOW_MIN, WINDOW_SIZE,
 )
-from .ui import build_widgets
-from .urls import is_playlist_info, is_same_video
+from .ui import build_widgets, chip_text, style_chip
+from .urls import extract_video_id, is_playlist_info, is_same_video
+from .widgets.queue_list import is_selectable
 from .winproc import (
     bind_children_to_process_lifetime, resource_path, terminate_child_ffmpeg,
 )
+
+AUDIO_EXTS = ('.mp3', '.flac')
+VIDEO_EXTS = ('.mp4', '.mkv', '.webm', '.avi')
 
 
 class YoutubeDownloaderApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        
+
+        # 검색·썸네일·다운로드 스레드가 GIL 을 잡고 있으면 화면 스레드는 Tk 호출마다
+        # 전환 주기(기본 5ms)만큼 기다린다. 한 화면에 Tk 호출이 수백 번이라 눈에 띄게 멈춘다.
+        sys.setswitchinterval(0.001)
+
         self.title("YouTube Music Downloader - Batch Queue Edition")
-        self.geometry("800x700")
-        self.minsize(750, 650)
+        self.geometry(WINDOW_SIZE)
+        self.minsize(*WINDOW_MIN)
         self.configure(fg_color=C_BG)
-        
+
         # 자식 프로세스(ffmpeg)가 앱보다 오래 살지 못하도록 묶는다
         self._job_handle = bind_children_to_process_lifetime()
 
@@ -54,7 +66,7 @@ class YoutubeDownloaderApp(ctk.CTk):
         except Exception:
             pass
 
-        
+
         # 상태 변수들
         self.stop_requested = False
         self.last_error = None
@@ -70,9 +82,10 @@ class YoutubeDownloaderApp(ctk.CTk):
         self.pending_added_during_batch = 0
         self.searching = False
         self.search_generation = 0
+        self.search_received = 0           # 이번 검색에서 화면에 붙인 결과 수
         self.save_dir_var = ctk.StringVar(value=os.path.normpath(os.getcwd()))
         self.queue_items = []  # 대기열 목록: [{title, url, duration, uploader, check_var, status}]
-        
+
         # 현재 일괄 다운로드 제어 변수
         self.batch_running = False
         self.current_download_idx = -1
@@ -83,16 +96,47 @@ class YoutubeDownloaderApp(ctk.CTk):
             'status': 'idle'
         }
         self.overall_progress = 0.0
-        
+        self.batch_position = (0, 0)       # (지금 몇 번째, 모두 몇 곡)
+
+        # 화면 상태
+        self.current_screen = None
+        self.file_views = {}               # 'audio'/'video' -> 필터·정렬 상태와 위젯
+        self.file_entries = {'audio': [], 'video': []}
+        self.session_started_at = time.time()  # 이후에 생긴 파일에 '새로 받음' 을 붙인다
+
         self.create_widgets()
         self.refresh_file_list()
-        
+        self.update_queue_list_ui()
+        self.update_search_selection()
+        self.show_screen("search")
+
         # 실시간 UI 모니터링 루프 시작
         self.after(100, self.update_progress_loop)
-        
+
     def create_widgets(self):
         build_widgets(self)
-        
+
+    # ------------------------------------------------------------------
+    # 화면 전환
+    # ------------------------------------------------------------------
+    def show_screen(self, name):
+        """사이드바 메뉴로 화면을 바꾼다. 대기열에서는 진행 요약을 숨긴다.
+
+        안 보이는 화면은 배치에서 뺀다. 겹쳐 두기만 하면 창 크기를 바꿀 때
+        보이지 않는 화면 넷의 목록까지 전부 다시 배치해 버벅인다.
+        """
+        for key, frame in self.screens.items():
+            if key == name:
+                frame.grid()
+            else:
+                frame.grid_remove()
+        self.current_screen = name
+        self.sidebar.set_active(name)
+        self.sidebar.show_progress(self.batch_running and name != "queue")
+        if name in self.file_views:
+            # 다른 화면에 있는 동안 받은 파일도 바로 보이게 한다
+            self.refresh_file_list()
+
     def start_search(self):
         # Enter 키(바인딩)는 버튼 비활성화를 우회하므로 플래그로 재진입을 막는다.
         # 막지 않으면 연타 한 번마다 검색 스레드와 썸네일 작업 100건이 쌓인다.
@@ -109,10 +153,21 @@ class YoutubeDownloaderApp(ctk.CTk):
             self.show_error("검색 키워드를 입력해 주세요.")
             return
 
+        # 유튜브 링크면 검색하지 않고 바로 대기열에 담는다
+        if extract_video_id(query):
+            if self.add_url_to_queue(query):
+                self.search_entry.delete(0, 'end')
+                self.show_screen("queue")
+            return
+
         self.searching = True
         self.search_generation += 1
+        self.search_received = 0
         generation = self.search_generation
         self.search_btn.configure(state="disabled", text="검색 중...")
+        # 결과가 올 때까지 옛 결과를 두면 새 결과와 섞여 보인다
+        self.search_scroll.populate_results([], empty_text=SEARCH_LOADING_TEXT)
+        self.set_search_progress(None, SEARCH_LOADING_TEXT)
 
         # 응답이 영영 안 오면 검색이 영구히 막히므로 안전장치를 건다
         self.after(SEARCH_TIMEOUT_MS, self.on_search_timeout, generation)
@@ -133,7 +188,32 @@ class YoutubeDownloaderApp(ctk.CTk):
 
     def finish_search(self):
         self.searching = False
-        self.search_btn.configure(state="normal", text="유튜브 검색")
+        self.search_btn.configure(state="normal", text="검색")
+        self.set_search_progress(None, None)
+
+    def set_search_progress(self, value, text):
+        """검색창 아래 진행 줄.
+
+        text 가 None 이면 진행 줄을 걷고 안내 문구로 돌아간다.
+        value 가 None 이면 첫 결과가 오기 전이라 얼마나 남았는지 모르므로 막대를 좌우로 움직인다.
+        """
+        bar = self.search_progress_bar
+        if text is None:
+            bar.stop()
+            bar.grid_remove()
+            self.search_hint_lbl.configure(text=self.search_hint_text, text_color=C_STEEL)
+            return
+        self.search_hint_lbl.configure(text=text, text_color=C_ASH)
+        if value is None:
+            if bar.cget("mode") != "indeterminate":
+                bar.configure(mode="indeterminate")
+                bar.start()
+        else:
+            if bar.cget("mode") != "determinate":
+                bar.stop()
+                bar.configure(mode="determinate")
+            bar.set(value)
+        bar.grid()
 
     def on_search_timeout(self, generation):
         """응답이 없는 검색의 잠금을 풀어 준다. 현재 검색일 때만 동작한다."""
@@ -147,47 +227,74 @@ class YoutubeDownloaderApp(ctk.CTk):
         )
 
     def search_thread_target(self, query, generation):
+        """결과를 한 페이지(20개)씩 받는 대로 화면에 넘긴다.
+
+        100개를 다 모은 뒤 넘기면 5초 넘게 아무 변화가 없다가 한꺼번에 뜬다.
+        process=False 로 받으면 유튜브 페이지를 넘길 때마다 결과가 흘러나온다.
+        """
+        found = 0
         try:
-            # yt-dlp를 이용해 동영상을 다운로드 받지 않고 검색만 수행
             ydl_opts = {
                 'skip_download': True,
                 'extract_flat': True,
                 'quiet': True,
             }
-            # 검색어 100개 추출 (flat extraction으로 빠른 메타데이터 리스트 수집)
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(f"ytsearch100:{query}", download=False)
-                entries = info.get('entries', [])
-                
-            results = []
-            for entry in entries:
-                duration_str = format_duration(entry.get('duration', 0))
-                
-                results.append({
-                    'title': entry.get('title', 'Unknown Title'),
-                    'url': entry.get('url', f"https://www.youtube.com/watch?v={entry.get('id')}"),
-                    'duration': duration_str,
-                    'uploader': entry.get('uploader', 'Unknown'),
-                    'thumbnail': entry.get('thumbnail') or (f"https://img.youtube.com/vi/{entry.get('id')}/hqdefault.jpg" if entry.get('id') else None)
-                })
-                
-            self.after(0, self.on_search_success, results, generation)
+                info = ydl.extract_info(
+                    f"ytsearch{SEARCH_LIMIT}:{query}", download=False, process=False)
+                batch = []
+                for entry in info.get('entries') or []:
+                    if not self.is_current_search(generation):
+                        return  # 새 검색이 시작됐다. 남은 페이지는 받지 않는다
+                    result = search_result_from_entry(entry)
+                    if result is None:
+                        continue   # 채널·재생목록
+                    batch.append(result)
+                    if len(batch) >= SEARCH_BATCH:
+                        self.after(0, self.on_search_batch, batch, generation)
+                        found += len(batch)
+                        batch = []
+                if batch:
+                    self.after(0, self.on_search_batch, batch, generation)
+                    found += len(batch)
+
+            self.after(0, self.on_search_success, found, generation)
         except Exception as e:
             self.after(0, self.on_search_failed, describe_download_error(e), generation)
 
-    def on_search_success(self, results, generation=None):
+    def on_search_batch(self, results, generation):
+        """받은 한 페이지를 목록 뒤에 붙이고 진행 줄을 채운다."""
+        if not self.is_current_search(generation):
+            return
+        if self.search_received == 0:
+            self.search_scroll.populate_results(results)
+        else:
+            self.search_scroll.append_results(results)
+        self.search_received += len(results)
+        self.set_search_progress(
+            min(self.search_received / SEARCH_LIMIT, 1.0),
+            f"찾는 중… {self.search_received}개 받음")
+        self.search_count_lbl.configure(text=f"결과 {self.search_received}개")
+        self.sidebar.set_count("search", self.search_received)
+
+    def on_search_success(self, found, generation=None):
+        """검색이 끝났다. found 는 화면에 넘긴 결과 수다."""
         # 세대가 어긋나도 잠금은 반드시 푼다. 안 그러면 검색이 영구히 막힌다.
         self.finish_search()
         if generation is not None and not self.is_current_search(generation):
             return  # 이미 새 검색이 시작됐다. 옛 결과는 버린다.
-        self.search_scroll.populate_results(results, empty_text=SEARCH_NO_RESULT_TEXT)
-        
+        if not found:
+            self.search_scroll.populate_results([], empty_text=SEARCH_NO_RESULT_TEXT)
+        self.search_count_lbl.configure(text=f"결과 {found}개")
+        self.sidebar.set_count("search", found)
+        self.update_search_selection()
+
     def on_search_failed(self, err_msg, generation=None):
         self.finish_search()
         if generation is not None and not self.is_current_search(generation):
             return
         self.show_error("유튜브 검색에 실패했습니다." + BR + BR + str(err_msg))
-        
+
     def add_selected_to_queue(self):
         added_any = False
         added_count = 0
@@ -208,7 +315,7 @@ class YoutubeDownloaderApp(ctk.CTk):
                 # 검색 목록 체크박스 해제
                 item['check_var'].set(False)
                 added_any = True
-                
+
         if not added_any:
             self.show_error("추가할 항목을 1개 이상 선택해 주세요.")
             return
@@ -221,7 +328,7 @@ class YoutubeDownloaderApp(ctk.CTk):
                 + BR + BR
                 + "새로 추가된 곡은 없습니다."
             )
-            
+
         # 대기열 목록 리빌딩
         self.update_queue_list_ui()
 
@@ -236,21 +343,29 @@ class YoutubeDownloaderApp(ctk.CTk):
                 + "현재 배치가 끝난 뒤 다시 다운로드를 시작해 주세요."
             )
 
-        # 탭 뷰를 다운로드 대기열 탭으로 포커스 이동
-        self.tabview.set("다운로드 대기열")
-        
+        # 담은 곡을 바로 확인할 수 있게 대기열 화면으로 넘어간다
+        self.show_screen("queue")
+
     def add_direct_url(self):
+        """대기열 화면의 '+ 링크 추가' 입력 줄."""
         url = self.direct_url_entry.get().strip()
         if not url:
             self.show_error("추가할 유튜브 링크를 입력해 주세요.")
             return
-            
+        if self.add_url_to_queue(url):
+            self.direct_url_entry.delete(0, 'end')
+
+    def add_url_to_queue(self, url):
+        """링크 하나를 대기열에 담고 분석을 시작한다. 담았으면 True.
+
+        검색창에 붙여넣은 링크와 '+ 링크 추가' 가 같은 길을 쓴다.
+        """
         # 대기열에 이미 존재하는지 검사 (링크 형태가 달라도 같은 영상이면 중복)
         exists = any(is_same_video(q['url'], url) for q in self.queue_items)
         if exists:
             self.show_error("이미 대기열에 존재하는 링크입니다.")
-            return
-            
+            return False
+
         # 임시 대기열 항목 생성 및 표시
         new_item = {
             'title': f"링크 분석 중: {url}",
@@ -261,9 +376,8 @@ class YoutubeDownloaderApp(ctk.CTk):
             'status': 'analyzing'
         }
         self.queue_items.append(new_item)
-        self.queue_scroll.populate_queue(self.queue_items, self.delete_queue_item)
-        self.direct_url_entry.delete(0, 'end')
-        
+        self.update_queue_list_ui()
+
         if self.batch_running:
             self.pending_added_during_batch += 1
             self.show_error(
@@ -277,7 +391,8 @@ class YoutubeDownloaderApp(ctk.CTk):
         # 백그라운드 분석 스레드 가동
         thread = threading.Thread(target=self.analyze_direct_url_thread, args=(new_item,), daemon=True)
         thread.start()
-        
+        return True
+
     def analyze_direct_url_thread(self, item):
         url = item['url']
         try:
@@ -302,7 +417,7 @@ class YoutubeDownloaderApp(ctk.CTk):
                     'blocked': True,
                     'error': (
                         f"재생목록/채널 링크입니다(영상 {count}개). "
-                        "개별 영상 링크를 넣거나 검색 탭에서 곡을 선택해 주세요."
+                        "개별 영상 링크를 넣거나 검색 화면에서 곡을 선택해 주세요."
                     ),
                 })
                 # Tk 변수 쓰기는 메인 스레드에서 한다
@@ -312,7 +427,7 @@ class YoutubeDownloaderApp(ctk.CTk):
                            f"재생목록 링크는 추가할 수 없습니다.\n\n"
                            f"'{info.get('title', url)}' 에는 영상 {count}개가 들어 있어\n"
                            f"한 항목으로 받으면 저장 폴더가 통째로 채워집니다.\n\n"
-                           f"개별 영상 링크를 넣거나 검색 탭을 이용해 주세요.")
+                           f"개별 영상 링크를 넣거나 검색 화면을 이용해 주세요.")
                 return
 
             title = info.get('title', 'Unknown Title')
@@ -332,31 +447,33 @@ class YoutubeDownloaderApp(ctk.CTk):
                 'status': 'failed',
                 'error': describe_download_error(e),
             })
-            
+
         # UI 스레드에서 대기열 목록 UI 갱신
         self.after(0, self.update_queue_list_ui)
-        
+
     def delete_queue_item(self, index):
         if self.batch_running:
             self.show_error("다운로드 중에는 대기열을 수정할 수 없습니다.")
             return
         if 0 <= index < len(self.queue_items):
             self.queue_items.pop(index)
-            self.queue_scroll.populate_queue(self.queue_items, self.delete_queue_item)
-            
+            self.update_queue_list_ui()
+
     def clear_queue(self):
         if self.batch_running:
             self.show_error("다운로드 중에는 대기열을 비울 수 없습니다.")
             return
         self.queue_items.clear()
-        self.queue_scroll.populate_queue(self.queue_items, self.delete_queue_item)
+        self.update_queue_list_ui()
         self.total_prog_bar.set(0.0)
+        # 비운 대기열에 지난 결과가 남아 있으면 무엇의 결과인지 알 수 없다
+        self.now_card.grid_remove()
 
     def clear_completed_queue(self):
         if self.batch_running:
             self.show_error("다운로드 중에는 대기열을 수정할 수 없습니다.")
             return
-            
+
         new_items = []
         removed_count = 0
         for item in self.queue_items:
@@ -364,29 +481,26 @@ class YoutubeDownloaderApp(ctk.CTk):
                 removed_count += 1
             else:
                 new_items.append(item)
-                
+
         if removed_count == 0:
             self.show_error("대기열에 완료(finished) 상태인 항목이 없습니다.")
             return
-            
+
         self.queue_items = new_items
         self.update_queue_list_ui()
-        
+
     def on_format_changed(self, value):
-        if value in ("FLAC", "MP4"):
-            self.quality_label.pack_forget()
-            self.quality_select.pack_forget()
-        else:
-            self.quality_label.pack(side="left", padx=(15, 5))
-            self.quality_select.pack(side="left", padx=5)
-            
+        # 음질은 MP3 에만 쓴다. 칸을 숨기지 않고 잠가서 옆 칸이 흔들리지 않게 한다
+        self.quality_select.configure(state="normal" if value == "MP3" else "disabled")
+
+
     def start_all_download(self):
         # 모든 대기열 항목 활성화(체크) 처리 후 시작
         for item in self.queue_items:
             # 차단된 재생목록 항목까지 다시 체크하면 위 가드가 무력해진다
             item['check_var'].set(not item.get('blocked'))
         self.start_selected_download()
-        
+
     def request_stop_download(self):
         if not self.batch_running:
             return
@@ -395,6 +509,9 @@ class YoutubeDownloaderApp(ctk.CTk):
         # 배경까지 회색으로 바꿔야 '눌리는데 반응 없는 버튼' 으로 보이지 않는다
         self.stop_download_btn.configure(
             state="disabled", border_color=C_GRAPHITE, text_color=C_GRAPHITE)
+        sidebar = getattr(self, 'sidebar', None)
+        if sidebar is not None:
+            sidebar.set_stop_enabled(False)
 
         # 변환(FFmpeg) 단계에서는 progress_hook 이 불리지 않아 플래그만으로는 멈추지 않는다.
         # 실행 중인 자식 ffmpeg 를 직접 종료해야 즉시 중단된다.
@@ -403,13 +520,13 @@ class YoutubeDownloaderApp(ctk.CTk):
             self.stop_message = "변환을 중단했습니다. 정리하는 중..."
         else:
             self.stop_message = "중단 요청됨. 현재 곡을 정리하는 중..."
-        self.queue_status_lbl.configure(text=f"대기열 상태: {self.stop_message}", text_color=C_DANGER)
+        self.queue_status_lbl.configure(text=self.stop_message, text_color=C_DANGER)
 
     def start_selected_download(self):
         if self.batch_running:
             self.show_error("이미 다운로드 대기열이 실행 중입니다.")
             return
-            
+
         # blocked 는 재생목록처럼 '받으면 안 되는' 항목이다.
         # status 만 보고 거르면 'failed' 로 남은 재생목록이 재시도 경로로 되살아난다.
         selected_indices = [
@@ -424,12 +541,12 @@ class YoutubeDownloaderApp(ctk.CTk):
                     + BR + BR
                     + f"대기열의 {blocked_count}개는 재생목록/채널 링크라 받을 수 없습니다."
                     + BR
-                    + "개별 영상 링크를 넣거나 검색 탭을 이용해 주세요."
+                    + "개별 영상 링크를 넣거나 검색 화면을 이용해 주세요."
                 )
             else:
                 self.show_error("다운로드할(완료되지 않은) 항목을 1개 이상 체크해 주세요.")
             return
-            
+
         # 저장 폴더가 유효하지 않으면 다운로드를 시작하지 않는다.
         # 안내만 하고 진행하면 파일이 앱 폴더로 조용히 쌓인다.
         resolved, dir_ok = resolve_save_dir(self.save_dir_var.get())
@@ -458,7 +575,7 @@ class YoutubeDownloaderApp(ctk.CTk):
             'quality': self.quality_var.get().replace("kbps", ""),
             'save_dir': resolved,
         }
-        
+
         # 백그라운드 스레드에서 순차 다운로드 시작
         thread = threading.Thread(
             target=self.batch_download_loop,
@@ -476,14 +593,14 @@ class YoutubeDownloaderApp(ctk.CTk):
                 + BR + BR
                 + str(exc)
             )
-        
+
     def batch_download_loop(self, indices_to_download, settings):
         total_count = len(indices_to_download)
         format_type = settings['format']
         quality = settings['quality']
         save_dir = settings['save_dir']
         self.active_format = format_type
-        
+
         # 성공/실패/중단 개수를 집계해 완료 보고에 넘긴다
         tally = {'done': 0, 'failed': 0, 'stopped': 0, 'total': total_count}
         self.last_batch_tally = tally
@@ -498,6 +615,7 @@ class YoutubeDownloaderApp(ctk.CTk):
                     break
 
                 self.current_download_idx = idx
+                self.batch_position = (num + 1, total_count)
                 item = self.queue_items[idx]
 
                 # 상태값 초기화
@@ -540,17 +658,17 @@ class YoutubeDownloaderApp(ctk.CTk):
             # 배치가 끝나면 중간 파일 찌꺼기를 정리한다
             cleanup_temp_dir(save_dir)
             self.after(0, self.on_batch_download_complete)
-        
+
     def download_single(self, url, format_type, quality, save_dir):
         def progress_hook(d):
             if self.stop_requested:
                 raise Exception("Download aborted by user")
-                
+
             if d['status'] == 'downloading':
                 total = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
                 downloaded = d.get('downloaded_bytes', 0)
                 percent = downloaded / total if total > 0 else 0.0
-                
+
                 speed = d.get('speed')
                 if speed:
                     if speed > 1024 * 1024:
@@ -559,10 +677,10 @@ class YoutubeDownloaderApp(ctk.CTk):
                         speed_str = f"{speed / 1024:.2f} KB/s"
                 else:
                     speed_str = "계산 중..."
-                    
+
                 eta = d.get('eta')
                 eta_str = format_eta(eta) if eta else "--:--"
-                    
+
                 self.current_download_status.update({
                     'percent': percent,
                     'speed': speed_str,
@@ -586,9 +704,9 @@ class YoutubeDownloaderApp(ctk.CTk):
                 if self.current_download_idx != -1:
                     self.queue_items[self.current_download_idx]['status'] = 'converting'
                     self.after(0, self.update_queue_list_ui)
-                    
+
         ydl_opts = build_ydl_opts(save_dir, format_type, quality, progress_hook)
-        
+
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
@@ -598,11 +716,115 @@ class YoutubeDownloaderApp(ctk.CTk):
             # --windowed 빌드에서는 stdout 이 없어 원인이 완전히 사라진다.
             self.last_error = describe_download_error(e)
             return False
-            
+
     def update_queue_list_ui(self):
-        # 대기열 리스트 프레임 리빌드
+        """대기열이 바뀌면 목록과 그에 딸린 표시(요약·칩·선택·사이드바·검색 표시)를 함께 맞춘다."""
         self.queue_scroll.populate_queue(self.queue_items, self.delete_queue_item)
-        
+
+        unit = "편" if self.format_var.get() == 'MP4' else "곡"
+        self.queue_summary_lbl.configure(text=describe_queue_summary(self.queue_items, unit))
+        counts = summarize_queue(self.queue_items)
+        for bucket, button in self.queue_filter_btns.items():
+            button.configure(text=chip_text(bucket, counts[bucket]))
+        self.sidebar.set_count("queue", counts["전체"])
+        self.update_queue_selection()
+        # 담긴 곡은 검색 결과에서 흐리게 바뀌어야 한다
+        self.search_scroll.refresh_queued()
+
+    def selectable_queue_items(self):
+        return [item for item in self.queue_items if is_selectable(item)]
+
+    def update_queue_selection(self):
+        """선택 개수에 맞춰 '선택한 N곡 받기' 와 전체 선택 체크를 고친다."""
+        selectable = self.selectable_queue_items()
+        checked = sum(1 for item in selectable if item['check_var'].get())
+        unit = "편" if self.format_var.get() == 'MP4' else "곡"
+        self.queue_sel_lbl.configure(text=f"{checked}{unit} 선택" if selectable else "")
+        self.download_selected_btn.configure(
+            text=f"선택한 {checked}{unit} 받기" if checked else "선택한 곡 받기")
+        self.queue_select_all_var.set(bool(selectable) and checked == len(selectable))
+
+    def toggle_select_all(self):
+        value = self.queue_select_all_var.get()
+        for item in self.selectable_queue_items():
+            item['check_var'].set(value)
+        self.update_queue_selection()
+
+    def set_queue_filter(self, bucket):
+        self.queue_scroll.bucket = bucket
+        for key, button in self.queue_filter_btns.items():
+            style_chip(button, key == bucket)
+        self.update_queue_list_ui()
+
+    def toggle_link_row(self):
+        if self.link_row.winfo_manager():
+            self.link_row.grid_remove()
+        else:
+            self.link_row.grid()
+            self.direct_url_entry.focus_set()
+
+    # ------------------------------------------------------------------
+    # 검색 결과의 대기열 표시
+    # ------------------------------------------------------------------
+    def is_in_queue(self, url):
+        return any(is_same_video(q['url'], url) for q in self.queue_items)
+
+    def update_search_selection(self):
+        count = self.search_scroll.selected_count()
+        self.search_sel_lbl.configure(text=f"{count}개 선택" if count else "선택한 곡 없음")
+
+    def on_hide_queued_changed(self):
+        self.search_scroll.hide_queued = bool(self.search_hide_queued_var.get())
+        self.search_scroll.refresh_queued()
+
+    # ------------------------------------------------------------------
+    # '지금 받는 중' 카드
+    # ------------------------------------------------------------------
+    def set_now_step(self, current):
+        """분석 → 다운로드 → 변환 중 현재 단계를 흰 블록으로 채운다."""
+        order = ("analyze", "download", "convert")
+        reached = order.index(current) if current in order else -1
+        for i, key in enumerate(order):
+            label = self.now_step_lbls[key]
+            base = label.cget("text").replace(" ✓", "").strip()
+            if i < reached:
+                label.configure(text=f"  {base} ✓  ", fg_color=C_SURFACE_DEEP, text_color=C_ASH)
+            elif i == reached:
+                label.configure(text=f"  {base}  ", fg_color=C_PEARL, text_color=C_SURFACE_DEEP)
+            else:
+                label.configure(text=f"  {base}  ", fg_color=C_SURFACE_DEEP, text_color=C_STEEL)
+
+    def show_running_view(self, running):
+        """받는 중에는 카드·중단 버튼·잠금 안내를 보이고, 끝나면 시작 버튼으로 돌린다."""
+        if running:
+            convert = "병합" if self.format_var.get() == 'MP4' else f"{self.format_var.get()} 변환"
+            self.now_step_lbls["convert"].configure(text=f"  {convert}  ")
+            self.set_now_step("analyze")
+            self.now_card.configure(border_color=C_GIALLO)
+            self.now_steps_row.pack(fill="x", pady=(6, 8), before=self.cur_prog_bar)
+            self.queue_status_lbl.configure(text="받을 준비 중…", text_color=C_PEARL)
+            self.cur_prog_bar.set(0.0)
+            self.cur_stats_lbl.configure(text="")
+            self.now_card.grid()
+            self.settings_lock_lbl.pack(side="right")
+            self.download_selected_btn.pack_forget()
+            self.download_all_btn.pack_forget()
+            self.stop_download_btn.pack(side="right", padx=(0, 24))
+            self.stop_hint_lbl.pack(side="right", padx=(0, 12))
+        else:
+            # 결과를 남겨 두되 받는 중이 아님을 노랑 테두리로 구분한다
+            self.now_card.configure(border_color=C_GRAPHITE)
+            self.now_steps_row.pack_forget()
+            self.now_order_lbl.configure(text="")
+            self.settings_lock_lbl.pack_forget()
+            self.stop_download_btn.pack_forget()
+            self.stop_hint_lbl.pack_forget()
+            self.download_all_btn.pack(side="right", padx=(0, 24))
+            self.download_selected_btn.pack(side="right", padx=(0, 8))
+        self.sidebar.set_live(running)
+        self.sidebar.set_stop_enabled(running)
+        self.sidebar.show_progress(running and self.current_screen != "queue")
+
     def on_batch_download_complete(self):
         self.set_controls_locked(False)
 
@@ -618,12 +840,12 @@ class YoutubeDownloaderApp(ctk.CTk):
             done, failed, stopped, total=tally.get('total'), unit=unit)
 
         color = C_SUCCESS if all_ok else (C_DANGER if failed else C_TEXT_MUTED)
-        self.queue_status_lbl.configure(text=f"대기열 결과: {message}", text_color=color)
+        self.queue_status_lbl.configure(text=f"지난 받기 결과: {message}", text_color=color)
         self.cur_prog_bar.set(1.0 if all_ok else 0.0)
         self.cur_stats_lbl.configure(text=describe_batch_detail(done, failed, stopped))
         # 성공한 만큼만 채운다. 실패인데 100% 면 진행 바가 거짓말을 한다
         self.total_prog_bar.set(batch_progress_value(done, failed, stopped))
-        self.overall_status_lbl.configure(text=f"전체 진행 상황: {message}")
+        self.overall_status_lbl.configure(text=f"전체: {message}")
         self.stop_requested = False
         self.stop_message = None
 
@@ -633,11 +855,11 @@ class YoutubeDownloaderApp(ctk.CTk):
             self.show_error(
                 f"다운로드 중에 추가된 {count}개 항목은 이번 배치에 포함되지 않았습니다."
                 + BR + BR
-                + "대기열에 그대로 남아 있으니 '선택 항목 다운로드' 를 다시 눌러 주세요."
+                + "대기열에 그대로 남아 있으니 '대기 중인 곡 모두 받기' 를 다시 눌러 주세요."
             )
 
         self.refresh_file_list()
-        
+
     def update_progress_loop(self):
         # 일괄 다운로드 진행 중 실시간 진행 정보 업데이트
         # 검사와 인덱싱 사이에 워커가 값을 바꿀 수 있으므로 한 번만 읽는다
@@ -648,25 +870,19 @@ class YoutubeDownloaderApp(ctk.CTk):
 
             # 중단 안내 문구가 100ms 뒤 이 루프에 덮여 사라지던 문제를 막는다
             if self.stop_requested and self.stop_message:
+                self.queue_status_lbl.configure(text=self.stop_message, text_color=C_DANGER)
+            elif status in ('downloading', 'converting'):
+                # 단계는 카드의 단계 표시가 보여 주므로 제목에는 곡 이름만 둔다
+                title = item['title']
                 self.queue_status_lbl.configure(
-                    text=f"대기열 상태: {self.stop_message}", text_color=C_DANGER)
-            elif status == 'downloading':
-                self.queue_status_lbl.configure(
-                    text=f"현재 다운로드 중: {item['title'][:40]}...",
-                    text_color=C_ACCENT
-                )
-            elif status == 'converting':
-                # MP4 는 오디오 변환이 아니라 영상 병합이다
-                stage = describe_postprocess_stage(self.active_format)
-                self.queue_status_lbl.configure(
-                    text=f"{stage} {item['title'][:34]}...",
-                    text_color=C_WARNING
+                    text=title if len(title) <= 48 else title[:47] + "…",
+                    text_color=C_PEARL,
                 )
 
             if status == 'downloading':
                 self.cur_prog_bar.set(self.current_download_status['percent'])
                 self.cur_stats_lbl.configure(
-                    text=f"{self.current_download_status['percent']*100:.1f}% | 속도: {self.current_download_status['speed']} | 남은 시간: {self.current_download_status['eta']}"
+                    text=f"{self.current_download_status['percent']*100:.1f}% · {self.current_download_status['speed']} · 남은 시간 {self.current_download_status['eta']}"
                 )
             elif status == 'converting' and not self.stop_requested:
                 # 변환 진행률은 알 수 없다. 100% 로 얼려두면 멈춘 것처럼 보이므로
@@ -683,10 +899,40 @@ class YoutubeDownloaderApp(ctk.CTk):
 
             # 전체 진행률 바 업데이트
             self.total_prog_bar.set(self.overall_progress)
-            self.overall_status_lbl.configure(text=f"전체 대기열 진행 상황: {self.overall_progress*100:.1f}% 완료")
+            self.overall_status_lbl.configure(text=f"전체 진행 {self.overall_progress*100:.0f}%")
+            self.sync_progress_extras(idx, item, status)
 
         # 100ms 간격 주기 호출
         self.after(100, self.update_progress_loop)
+
+    def sync_progress_extras(self, idx, item, status):
+        """카드의 순서·단계, 목록 한 줄의 %, 사이드바 요약을 같은 값으로 맞춘다."""
+        position, total = self.batch_position
+        unit = "편" if self.active_format == 'MP4' else "곡"
+        self.now_order_lbl.configure(text=f"{position} / {total}{unit}째")
+
+        percent = self.current_download_status.get('percent', 0.0)
+        if status == 'converting':
+            self.set_now_step("convert")
+        elif percent <= 0 and self.current_download_status.get('speed') == '계산 중...':
+            # 첫 바이트가 오기 전은 yt-dlp 가 영상 정보를 읽는 단계다
+            self.set_now_step("analyze")
+        else:
+            self.set_now_step("download")
+
+        if status == 'downloading':
+            self.queue_scroll.set_row_status_text(idx, f"● 다운로드 중 {percent*100:.0f}%")
+
+        if self.current_screen != "queue":
+            self.sidebar.update_progress(
+                eyebrow=f"받는 중 · {position} / {total}",
+                title=item['title'],
+                cur_value=self.cur_prog_bar.get(),
+                cur_text=(f"{percent*100:.0f}% · {self.current_download_status.get('speed', '')}"
+                          if status == 'downloading' else describe_postprocess_stage(self.active_format)),
+                total_value=self.overall_progress,
+                total_text=f"전체 {self.overall_progress*100:.0f}%",
+            )
 
     def browse_save_dir(self):
         selected_dir = filedialog.askdirectory(initialdir=self.save_dir_var.get())
@@ -695,44 +941,77 @@ class YoutubeDownloaderApp(ctk.CTk):
             self.refresh_file_list()
 
     def refresh_file_list(self):
+        """저장 폴더를 다시 읽어 음성·영상 목록을 채운다. 크기와 받은 날도 함께 읽는다."""
         save_dir, _dir_ok = resolve_save_dir(self.save_dir_var.get())
-            
-        audio_files = []
-        video_files = []
+
+        found = {'audio': [], 'video': []}
         try:
             for f in os.listdir(save_dir):
                 full_path = os.path.join(save_dir, f)
-                if os.path.isfile(full_path):
-                    if f.lower().endswith(('.mp3', '.flac')):
-                        audio_files.append(f)
-                    elif f.lower().endswith(('.mp4', '.mkv', '.webm', '.avi')):
-                        video_files.append(f)
-            audio_files.sort()
-            video_files.sort()
+                if not os.path.isfile(full_path):
+                    continue
+                lower = f.lower()
+                kind = 'audio' if lower.endswith(AUDIO_EXTS) else (
+                    'video' if lower.endswith(VIDEO_EXTS) else None)
+                if kind is None:
+                    continue
+                stat = os.stat(full_path)
+                found[kind].append({
+                    'name': f,
+                    'ext': os.path.splitext(f)[1][1:].upper(),
+                    'size': stat.st_size,
+                    'mtime': stat.st_mtime,
+                })
         except Exception as e:
             # --windowed 빌드에는 stdout 이 없어 print 는 흔적조차 남기지 못한다
             self.show_error("파일 목록을 읽지 못했습니다." + BR + BR + str(e))
-            
-        self.scroll_audio_frame.populate_files(
-            audio_files, 
-            lambda fname: self.play_file(os.path.join(save_dir, fname)), 
+
+        self.file_entries = found
+        self.file_dir = save_dir
+        for kind in ('audio', 'video'):
+            self.apply_file_view(kind)
+
+    def apply_file_view(self, kind):
+        """찾기 · 형식 칩 · 정렬을 적용해 목록을 다시 그린다. 폴더는 다시 읽지 않는다."""
+        view = self.file_views[kind]
+        entries = self.file_entries.get(kind, [])
+        shown = filter_sort_files(entries, view['filter_entry'].get(), view['ext'], view['sort'])
+        save_dir = getattr(self, 'file_dir', None) or resolve_save_dir(self.save_dir_var.get())[0]
+        frame = self.scroll_audio_frame if kind == 'audio' else self.scroll_video_frame
+        empty = view['empty'] if not entries else "찾는 조건에 맞는 파일이 없습니다."
+        frame.populate_files(
+            shown,
+            lambda fname: self.play_file(os.path.join(save_dir, fname)),
             lambda fname: self.delete_file(os.path.join(save_dir, fname)),
-            empty_text="다운로드된 음성 파일이 없습니다."
+            empty_text=empty,
+            new_since=self.session_started_at,
         )
-        
-        self.scroll_video_frame.populate_files(
-            video_files, 
-            lambda fname: self.play_file(os.path.join(save_dir, fname)), 
-            lambda fname: self.delete_file(os.path.join(save_dir, fname)),
-            empty_text="다운로드된 영상 파일이 없습니다."
-        )
-        
+
+        total_size = sum(e['size'] for e in entries)
+        view['count_lbl'].configure(
+            text=f"{len(entries)}개 · {format_size(total_size)}" if entries else "")
+        for ext, button in view['ext_btns'].items():
+            n = len(entries) if ext == "전체" else sum(1 for e in entries if e['ext'] == ext)
+            button.configure(text=chip_text(ext, n))
+        self.sidebar.set_count(kind, len(entries))
+
+    def set_file_ext(self, kind, ext):
+        view = self.file_views[kind]
+        view['ext'] = ext
+        for key, button in view['ext_btns'].items():
+            style_chip(button, key == ext)
+        self.apply_file_view(kind)
+
+    def set_file_sort(self, kind, label):
+        self.file_views[kind]['sort'] = FILE_SORTS.get(label, "recent")
+        self.apply_file_view(kind)
+
     def play_file(self, fullpath):
         try:
             os.startfile(fullpath)
         except Exception as e:
             self.show_error(f"재생 실패:\n{e}")
-            
+
     def delete_file(self, fullpath):
         if self.block_if_downloading('파일을 삭제할'):
             return
@@ -745,7 +1024,7 @@ class YoutubeDownloaderApp(ctk.CTk):
                 self.refresh_file_list()
             except Exception as e:
                 self.show_error(f"파일 삭제 오류:\n{e}")
-                
+
     def delete_all_completed_audio(self):
         if self.block_if_downloading('파일을 삭제할'):
             return
@@ -758,14 +1037,14 @@ class YoutubeDownloaderApp(ctk.CTk):
         except Exception as e:
             self.show_error(f"파일 목록 조회 실패:\n{e}")
             return
-            
+
         if not audio_files:
             self.show_error("삭제할 완료 음성 파일이 없습니다.")
             return
 
         word_count, word_kind = len(audio_files), "음성"
         dialog = ctk.CTkInputDialog(
-            text=f"다음 폴더의 {word_count}개 {word_kind} 파일을 영구 삭제합니다.\n{save_dir}\n\n이 폴더의 모든 {word_kind} 파일이 대상입니다. 앱이 받지 않은 파일도 포함됩니다.\n삭제하려면 'yes' 를 입력해 주세요.", 
+            text=f"다음 폴더의 {word_count}개 {word_kind} 파일을 영구 삭제합니다.\n{save_dir}\n\n이 폴더의 모든 {word_kind} 파일이 대상입니다. 앱이 받지 않은 파일도 포함됩니다.\n삭제하려면 'yes' 를 입력해 주세요.",
             title="완료 음성 파일 전체 삭제 확인"
         )
         response = dialog.get_input()
@@ -797,14 +1076,14 @@ class YoutubeDownloaderApp(ctk.CTk):
         except Exception as e:
             self.show_error(f"파일 목록 조회 실패:\n{e}")
             return
-            
+
         if not video_files:
             self.show_error("삭제할 완료 영상 파일이 없습니다.")
             return
 
         word_count, word_kind = len(video_files), "영상"
         dialog = ctk.CTkInputDialog(
-            text=f"다음 폴더의 {word_count}개 {word_kind} 파일을 영구 삭제합니다.\n{save_dir}\n\n이 폴더의 모든 {word_kind} 파일이 대상입니다. 앱이 받지 않은 파일도 포함됩니다.\n삭제하려면 'yes' 를 입력해 주세요.", 
+            text=f"다음 폴더의 {word_count}개 {word_kind} 파일을 영구 삭제합니다.\n{save_dir}\n\n이 폴더의 모든 {word_kind} 파일이 대상입니다. 앱이 받지 않은 파일도 포함됩니다.\n삭제하려면 'yes' 를 입력해 주세요.",
             title="완료 영상 파일 전체 삭제 확인"
         )
         response = dialog.get_input()
@@ -823,14 +1102,14 @@ class YoutubeDownloaderApp(ctk.CTk):
                 if len(errors) > 5:
                     err_msg += f"\n외 {len(errors)-5}개 파일"
                 self.show_error(f"{deleted_count}개 파일 삭제 완료 (일부 실패):\n{err_msg}")
-                
+
     def open_download_folder(self):
         save_dir, _dir_ok = resolve_save_dir(self.save_dir_var.get())
         try:
             os.startfile(save_dir)
         except Exception as e:
             self.show_error(f"폴더 열기 실패:\n{e}")
-            
+
     def block_if_downloading(self, action_text):
         """다운로드 중에 파일을 건드리면 진행 중인 작업이 깨지므로 막는다."""
         if self.batch_running:
@@ -869,6 +1148,11 @@ class YoutubeDownloaderApp(ctk.CTk):
             self.queue_scroll.set_locked(locked)
         except Exception:
             pass
+
+        # 음질은 MP3 일 때만 열려 있어야 한다. 잠금을 풀며 일괄로 열린 것을 되돌린다
+        if not locked:
+            self.on_format_changed(self.format_var.get())
+        self.show_running_view(locked)
 
     def confirm_exit_during_download(self):
         """다운로드 진행 중 종료를 사용자에게 확인받는다."""
