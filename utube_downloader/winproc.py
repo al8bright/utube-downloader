@@ -162,5 +162,8 @@ def bind_children_to_process_lifetime():
 
 def resource_path(relative_path):
     """PyInstaller 번들과 일반 실행 양쪽에서 리소스 절대 경로를 반환한다."""
-    base_path = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    # 소스로 실행할 때 리소스는 패키지 폴더가 아니라 프로젝트 루트에 있다.
+    # 패키지로 옮긴 뒤 __file__ 기준으로 두면 아이콘을 못 찾아 조용히 빠진다.
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    base_path = getattr(sys, "_MEIPASS", project_root)
     return os.path.join(base_path, relative_path)

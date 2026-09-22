@@ -64,3 +64,10 @@ class TestPackageImports:
 class TestNoUnusedState:
     def test_사용하지_않는_search_results_가_없다(self):
         assert "self.search_results = []" not in read_all(), "실제 검색 상태와 혼동을 준다"
+
+
+class TestResourcePath:
+    def test_소스_실행에서_아이콘을_찾는다(self):
+        """패키지로 옮긴 뒤 경로 기준이 바뀌어 아이콘이 조용히 빠진 적이 있다."""
+        from utube_downloader.winproc import resource_path
+        assert os.path.exists(resource_path("youtube_icon.ico"))
