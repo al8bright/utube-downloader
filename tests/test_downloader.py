@@ -66,3 +66,44 @@ class TestFlacQuality:
     def test_MP3는_비트레이트를_유지한다(self, tmp_path):
         opts = downloader.build_ydl_opts(str(tmp_path), "MP3", "256", hook=None)
         assert opts["postprocessors"][0]["preferredquality"] == "256"
+
+
+class TestForbiddenError:
+    def test_403은_구버전_안내로_바뀐다(self):
+        """유튜브가 서명 방식을 바꾸면 낡은 yt-dlp 의 주소가 403 으로 거부된다."""
+        msg = downloader.describe_download_error(
+            Exception("ERROR: unable to download video data: HTTP Error 403: Forbidden"))
+        assert "403" in msg and "yt-dlp" in msg
+
+    def test_봇_확인_요구는_따로_안내한다(self):
+        msg = downloader.describe_download_error(
+            Exception("ERROR: Sign in to confirm you're not a bot"))
+        assert "사람인지" in msg
+
+
+class TestJsRuntimes:
+    """유튜브 서명 계산에 쓰는 JavaScript 런타임 자동 감지."""
+
+    def test_설치된_런타임만_켠다(self):
+        found = downloader.detect_js_runtimes(which=lambda name: name in ("node", "bun"))
+        assert found == {"node": {}, "bun": {}}
+
+    def test_아무것도_없으면_비어_있다(self):
+        assert downloader.detect_js_runtimes(which=lambda name: None) == {}
+
+    def test_옵션에_실린다(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(downloader.shutil, "which", lambda name: name == "node")
+        opts = downloader.build_ydl_opts(str(tmp_path), "MP3", "320", None)
+        assert opts["js_runtimes"] == {"node": {}}
+
+    def test_없으면_기본값을_건드리지_않는다(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(downloader.shutil, "which", lambda name: None)
+        opts = downloader.build_ydl_opts(str(tmp_path), "MP3", "320", None)
+        assert "js_runtimes" not in opts, "빈 설정을 넘기면 yt-dlp 기본값(deno)까지 지워진다"
+
+    def test_검색과_분석도_같은_설정을_쓴다(self):
+        """다운로드만 런타임을 쓰면 검색·분석에서 경고가 남고 동작이 달라진다."""
+        import inspect
+        from utube_downloader import app as app_module
+        src = inspect.getsource(app_module)
+        assert src.count("js_runtime_opts()") >= 2

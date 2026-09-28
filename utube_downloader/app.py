@@ -12,7 +12,7 @@ from tkinter import filedialog, messagebox
 import customtkinter as ctk
 import yt_dlp
 
-from .downloader import build_ydl_opts, describe_download_error
+from .downloader import build_ydl_opts, describe_download_error, js_runtime_opts
 from .formatting import (
     BR, FILE_SORTS, SEARCH_BATCH, SEARCH_LIMIT, SEARCH_LOADING_TEXT,
     SEARCH_NO_RESULT_TEXT, SEARCH_TIMEOUT_MS, UNKNOWN_TIME,
@@ -238,6 +238,7 @@ class YoutubeDownloaderApp(ctk.CTk):
                 'skip_download': True,
                 'extract_flat': True,
                 'quiet': True,
+                **js_runtime_opts(),
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(
@@ -401,6 +402,7 @@ class YoutubeDownloaderApp(ctk.CTk):
                 'extract_flat': True,
                 'noplaylist': True,
                 'quiet': True,
+                **js_runtime_opts(),
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
