@@ -31,6 +31,17 @@
 | **FFmpeg** | 필수 (`winget install Gyan.FFmpeg`) |
 | **Python** | 소스로 실행할 때만 필요 (3.8 이상) |
 
+### ❓ 다운로드가 403(Forbidden)으로 실패한다면
+
+유튜브는 다운로드 주소의 서명 방식을 자주 바꿉니다. 실행 파일에 들어 있는 `yt-dlp` 가 오래되면 그 주소가 거부되어 `HTTP Error 403: Forbidden` 이 납니다.
+
+* **실행 파일로 쓰는 경우**: 최신 릴리스의 `YoutubeDownloader.exe` 로 교체하면 해결됩니다.
+* **소스로 실행하는 경우**: `.venv\Scripts\python.exe -m pip install -U yt-dlp` 로 올린 뒤 다시 시도합니다.
+* 빌드 스크립트는 exe 를 만들 때마다 `yt-dlp` 를 최신으로 올립니다.
+
+> Node.js·Deno 같은 JavaScript 실행기가 설치되어 있으면 앱이 자동으로 찾아 씁니다.
+> 없어도 동작하지만, 유튜브가 서명 계산을 요구하는 경우에 더 안정적입니다.
+
 ---
 
 ## ✨ 주요 기능
@@ -147,7 +158,7 @@ python -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 .venv\Scripts\python.exe -m pytest
 ```
-테스트는 `tests/` 아래에 모듈별로 나뉘어 있습니다. GUI 창을 띄우지 않고 도는 156건이라 몇 초면 끝납니다.
+테스트는 `tests/` 아래에 모듈별로 나뉘어 있습니다. GUI 창을 띄우지 않고 도는 163건이라 몇 초면 끝납니다.
 
 ---
 
@@ -158,7 +169,7 @@ python -m venv .venv
   * `app.py` 상태·스레드·생명주기 · `ui.py` 사이드바와 화면 4개 조립 · `widgets/` 사이드바·목록 부품
   * `theme.py` 디자인 토큰 · `formatting.py` 표시 문자열 · `urls.py` 링크 해석
   * `storage.py` 저장 경로 · `downloader.py` yt-dlp 연동 · `winproc.py` 프로세스 관리
-* **`tests/`**: 모듈별 테스트 156건.
+* **`tests/`**: 모듈별 테스트 163건.
 * **`requirements.txt`**: 패키지 의존성 파일 (`customtkinter`, `yt-dlp`, `pyinstaller`, `pillow`).
 * **`run_app.bat`**: 파이썬 확인 → 가상환경 생성 → 의존성 설치 → 실행까지 자동 처리하는 원클릭 런처.
 * **`build_exe.bat`**: 배포용 단일 EXE 자동 빌더 (빌드 환경까지 자동 준비).

@@ -35,6 +35,13 @@ REM ---------------------------------------------------
 REM [2/3] Build
 REM ---------------------------------------------------
 :do_build
+REM yt-dlp is the one dependency that goes stale fast. YouTube changes its
+REM signature scheme every few weeks and an old copy fails with HTTP 403,
+REM so every release build picks up the newest version.
+echo       Updating yt-dlp to the newest release...
+"%VENV_PY%" -m pip install -U yt-dlp --disable-pip-version-check
+if errorlevel 1 goto :pip_failed
+
 echo       Build environment ready.
 echo [2/3] Building single executable with PyInstaller...
 echo       This may take 1-2 minutes. Please wait...

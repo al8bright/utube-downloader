@@ -1,4 +1,5 @@
 customtkinter
-yt-dlp
+# 유튜브가 서명 방식을 바꾸면 낡은 yt-dlp 는 403 으로 거부당한다. 항상 최신을 쓴다
+yt-dlp>=2026.8.19
 pyinstaller
 pillow
