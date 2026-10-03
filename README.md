@@ -13,14 +13,9 @@
 **➡️ [최신 버전 다운로드 (YoutubeDownloader.exe)](https://github.com/al8bright/utube-downloader/releases/latest)**
 
 1. 위 링크에서 `YoutubeDownloader.exe`를 내려받습니다.
-2. **FFmpeg를 설치합니다.** MP3 / FLAC 변환에 반드시 필요합니다.
-   ```powershell
-   winget install Gyan.FFmpeg
-   ```
-   설치 후 터미널을 새로 열어야 PATH가 적용됩니다.
-3. `YoutubeDownloader.exe`를 더블클릭해 실행합니다.
+2. 더블클릭해 실행합니다. **따로 설치할 것은 없습니다.**
 
-> ⚠️ FFmpeg는 실행 파일에 포함되어 있지 않습니다. 없으면 다운로드는 되지만 오디오 변환이 실패합니다.
+> 변환에 쓰는 FFmpeg가 실행 파일 안에 들어 있어 별도 설치가 필요 없습니다(약 60MB).
 > 처음 실행 시에는 압축 해제 때문에 창이 뜨기까지 몇 초 걸릴 수 있습니다.
 
 ### 시스템 요구사항
@@ -28,7 +23,7 @@
 | 항목 | 내용 |
 | :--- | :--- |
 | **OS** | Windows 10 / 11 |
-| **FFmpeg** | 필수 (`winget install Gyan.FFmpeg`) |
+| **FFmpeg** | 실행 파일에 포함. 소스로 실행할 때만 따로 설치 (`winget install Gyan.FFmpeg`) |
 | **Python** | 소스로 실행할 때만 필요 (3.8 이상) |
 
 ### ❓ 다운로드가 403(Forbidden)으로 실패한다면
@@ -83,7 +78,7 @@ graph TD
 | **Language** | Python 3.8+ | 애플리케이션 개발 언어 |
 | **GUI Framework** | CustomTkinter | 현대적인 다크 테마 GUI 제공 및 위젯 스타일링 |
 | **Downloader** | `yt-dlp` | 유튜브 스트림 링크 추출 및 오디오 원본 데이터 다운로드 |
-| **Audio Engine** | FFmpeg / FFprobe | 오디오 포맷 변환(MP3/FLAC 인코딩) 및 메타데이터 처리 |
+| **Audio Engine** | FFmpeg | 오디오 포맷 변환(MP3/FLAC 인코딩)과 MP4 영상·음성 병합. 실행 파일에 포함 |
 | **Libraries** | `Pillow` (PIL) | 앨범 아트워크 이미지 렌더링 및 UI 아이콘 처리 |
 | | `threading`, `queue` | 백그라운드 멀티스레드 다운로드 대기열 연동 |
 
@@ -147,9 +142,10 @@ python -m venv .venv
 ### 2. 단일 실행 파일(`.exe`)로 빌드
 프로젝트 루트의 **`build_exe.bat`** 파일을 실행합니다.
 * 빌드 환경이 없으면 가상환경과 PyInstaller를 자동으로 준비합니다.
-* 완료되면 **`dist/YoutubeDownloader.exe`** 파일이 생성됩니다 (약 25MB).
+* 완료되면 **`dist/YoutubeDownloader.exe`** 파일이 생성됩니다 (약 60MB).
 * CustomTkinter 테마 리소스와 아이콘이 함께 번들링되어, 파이썬이 없는 PC에서도 단독 실행됩니다.
-* 다만 **FFmpeg는 번들링되지 않으므로** 대상 PC에 별도 설치가 필요합니다.
+* 빌드하는 PC의 **FFmpeg(`ffmpeg.exe`)를 함께 묶습니다.** 받는 PC에는 설치가 필요 없습니다.
+  설치돼 있지 않으면 빌드가 멈추고 설치 방법을 안내합니다. 다른 경로에 있으면 `set FFMPEG_DIR=...` 로 알려 주면 됩니다.
 
 ---
 
@@ -158,7 +154,7 @@ python -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 .venv\Scripts\python.exe -m pytest
 ```
-테스트는 `tests/` 아래에 모듈별로 나뉘어 있습니다. GUI 창을 띄우지 않고 도는 163건이라 몇 초면 끝납니다.
+테스트는 `tests/` 아래에 모듈별로 나뉘어 있습니다. GUI 창을 띄우지 않고 도는 167건이라 몇 초면 끝납니다.
 
 ---
 
@@ -169,7 +165,7 @@ python -m venv .venv
   * `app.py` 상태·스레드·생명주기 · `ui.py` 사이드바와 화면 4개 조립 · `widgets/` 사이드바·목록 부품
   * `theme.py` 디자인 토큰 · `formatting.py` 표시 문자열 · `urls.py` 링크 해석
   * `storage.py` 저장 경로 · `downloader.py` yt-dlp 연동 · `winproc.py` 프로세스 관리
-* **`tests/`**: 모듈별 테스트 163건.
+* **`tests/`**: 모듈별 테스트 167건.
 * **`requirements.txt`**: 패키지 의존성 파일 (`customtkinter`, `yt-dlp`, `pyinstaller`, `pillow`).
 * **`run_app.bat`**: 파이썬 확인 → 가상환경 생성 → 의존성 설치 → 실행까지 자동 처리하는 원클릭 런처.
 * **`build_exe.bat`**: 배포용 단일 EXE 자동 빌더 (빌드 환경까지 자동 준비).
