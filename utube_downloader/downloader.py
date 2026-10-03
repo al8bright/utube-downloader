@@ -6,6 +6,7 @@ import os
 import shutil
 
 from .storage import TEMP_DIR_NAME, escape_ydl_path
+from .winproc import resource_path
 
 # yt-dlp 가 지원하는 JavaScript 런타임 (우선순위 순)
 JS_RUNTIMES = ("deno", "node", "quickjs", "bun")
@@ -33,11 +34,25 @@ def js_runtime_opts():
     return {'js_runtimes': runtimes} if runtimes else {}
 
 
+def bundled_ffmpeg_dir():
+    """실행 파일에 함께 묶인 FFmpeg 폴더. 소스 실행이면 None.
+
+    받는 쪽 PC 에 FFmpeg 가 없으면 변환이 모두 실패하므로 exe 안에 넣어 배포한다.
+    """
+    path = resource_path("ffmpeg.exe")
+    return os.path.dirname(path) if os.path.exists(path) else None
+
+
 def describe_download_error(exc):
     """yt-dlp 예외를 사용자가 조치할 수 있는 한국어 문구로 바꾼다."""
     raw = str(exc)
     low = raw.lower()
     if 'ffmpeg' in low or 'ffprobe' in low:
+        if bundled_ffmpeg_dir():
+            # 실행 파일에 넣어 두었는데도 못 쓰는 경우다. 설치 안내는 도움이 안 된다
+            return ("함께 들어 있는 FFmpeg 를 실행하지 못했습니다."
+                    " 백신이나 보안 프로그램이 막았을 수 있습니다."
+                    " 프로그램을 예외로 등록하거나 다른 폴더에 두고 다시 시도해 주세요.")
         return "FFmpeg 를 찾을 수 없습니다. winget install Gyan.FFmpeg 로 설치한 뒤 다시 시도해 주세요."
     if '403' in raw or 'forbidden' in low:
         # 유튜브가 주소 서명 방식을 바꾸면 낡은 yt-dlp 가 만든 주소를 거부한다.
@@ -80,6 +95,11 @@ def build_ydl_opts(save_dir, format_type, quality, hook):
     }
 
     opts.update(js_runtime_opts())
+
+    # 묶어 둔 FFmpeg 를 먼저 쓴다. 없으면 yt-dlp 가 PATH 에서 찾는다
+    ffmpeg_dir = bundled_ffmpeg_dir()
+    if ffmpeg_dir:
+        opts['ffmpeg_location'] = ffmpeg_dir
     if hook is not None:
         opts['progress_hooks'] = [hook]
 

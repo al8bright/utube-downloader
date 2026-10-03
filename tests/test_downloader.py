@@ -107,3 +107,33 @@ class TestJsRuntimes:
         from utube_downloader import app as app_module
         src = inspect.getsource(app_module)
         assert src.count("js_runtime_opts()") >= 2
+
+
+class TestBundledFFmpeg:
+    """받는 쪽 PC 에 FFmpeg 가 없어도 되도록 exe 에 함께 넣는다."""
+
+    def _fake_bundle(self, monkeypatch, tmp_path, present):
+        if present:
+            (tmp_path / "ffmpeg.exe").write_bytes(b"x")
+        monkeypatch.setattr(downloader, "resource_path",
+                            lambda name: str(tmp_path / name))
+
+    def test_묶여_있으면_그_폴더를_쓴다(self, monkeypatch, tmp_path):
+        self._fake_bundle(monkeypatch, tmp_path, True)
+        opts = downloader.build_ydl_opts(str(tmp_path), "MP3", "320", None)
+        assert opts["ffmpeg_location"] == str(tmp_path)
+
+    def test_소스_실행이면_PATH_에_맡긴다(self, monkeypatch, tmp_path):
+        self._fake_bundle(monkeypatch, tmp_path, False)
+        opts = downloader.build_ydl_opts(str(tmp_path), "MP3", "320", None)
+        assert "ffmpeg_location" not in opts
+
+    def test_묶여_있는데_실패하면_설치_안내를_하지_않는다(self, monkeypatch, tmp_path):
+        self._fake_bundle(monkeypatch, tmp_path, True)
+        msg = downloader.describe_download_error(Exception("ffprobe/ffmpeg not found"))
+        assert "winget" not in msg and "백신" in msg
+
+    def test_소스_실행에서는_설치_안내를_한다(self, monkeypatch, tmp_path):
+        self._fake_bundle(monkeypatch, tmp_path, False)
+        msg = downloader.describe_download_error(Exception("ffprobe/ffmpeg not found"))
+        assert "winget" in msg
