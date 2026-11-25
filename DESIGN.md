@@ -4,7 +4,7 @@ YouTube Music Downloader 의 화면 규칙을 정리한 문서입니다.
 토큰 값은 `app/src/index.css` 맨 위 `:root` 에만 정의하며, 이 문서는 그 값을 **어디에, 왜** 쓰는지 설명합니다.
 값을 바꿀 때는 `:root` 를 먼저 고치고 이 문서를 맞춰 갱신합니다.
 
-> jamak_converter 와 같은 계열의 디자인입니다. 어두운 바탕 위에 네온 두 색(분홍 · 청록)을 쓰고, 팔레트는 jamak 의 '서울 나이트' 를 그대로 씁니다.
+> [jamak_converter](https://github.com/al8bright/jamak_converter) 와 같은 계열의 디자인입니다. 어두운 바탕 위에 네온 두 색(분홍 · 청록)을 쓰고, 팔레트는 jamak 의 '서울 나이트' 를 그대로 씁니다.
 
 ---
 

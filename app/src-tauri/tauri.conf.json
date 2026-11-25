@@ -42,6 +42,8 @@
       "../../backend/dist/utube-backend/": "backend/"
     },
     "publisher": "al8bright",
+    "copyright": "Copyright (c) 2026 al8bright. MIT License.",
+    "license": "MIT",
     "shortDescription": "유튜브 음악을 MP3 · FLAC · MP4 로 받기",
     "windows": {
       "nsis": {

@@ -5,7 +5,7 @@
 개인용 MP3 플레이어에 음악을 담아 오프라인으로 듣고 싶은 사용자를 위해 만들었습니다.
 
 > 2.0 부터 화면은 Tauri(웹뷰) + React, 다운로드 엔진은 Python(FastAPI + yt-dlp) 백엔드로 바뀌었습니다.
-> 구조는 `jamak_converter` 와 같습니다.
+> 구조와 디자인은 같은 작성자의 [jamak_converter](https://github.com/al8bright/jamak_converter) 와 같은 계열입니다.
 
 ---
 
@@ -76,7 +76,7 @@ graph TD
 ## 🎨 화면 구성
 
 왼쪽 사이드바로 화면 4개를 오갑니다. 사이드바는 위쪽 버튼으로 접고 펼 수 있고, 다음 실행에도 그 상태로 열립니다.
-디자인은 jamak_converter 와 같은 네온 계열(서울 나이트 팔레트)이며, 색·서체·배치 규칙은 [DESIGN.md](DESIGN.md)에 있습니다.
+디자인은 [jamak_converter](https://github.com/al8bright/jamak_converter) 와 같은 네온 계열(서울 나이트 팔레트)이며, 색·서체·배치 규칙은 [DESIGN.md](DESIGN.md)에 있습니다.
 
 ```
 +-------------+---------------------------------------------------------+
@@ -187,4 +187,26 @@ cd app;     pnpm exec tsc -b; pnpm lint
 | `backend/packaging/` | PyInstaller 설정 |
 | `backend/tests/` | 백엔드 테스트 |
 | `scripts/build_app.ps1` | 설치 파일 빌드 |
+| `scripts/collect_licenses.py` | 설치 파일에 넣을 서드파티 라이선스 모으기 |
+| `licenses/` · `THIRD_PARTY_NOTICES.md` | 함께 배포하는 구성 요소의 라이선스 안내 |
 | `.github/workflows/ci.yml` | 푸시·PR 검사 |
+
+---
+
+## ⚠️ 이용 시 주의
+
+* 이 앱은 **본인이 이용 권한을 가진 콘텐츠를 개인적으로 보관·감상**하는 용도로 만들었습니다.
+* 저작권이 있는 콘텐츠를 권리자의 허락 없이 내려받거나 다시 배포하는 것은 법에 어긋날 수 있습니다.
+  내려받은 파일을 어떻게 쓰는지에 대한 책임은 사용자에게 있습니다.
+* YouTube 이용약관은 서비스가 제공하는 다운로드 기능 밖에서 콘텐츠를 내려받는 것을 제한할 수 있습니다. 사용 전에 약관을 확인해 주세요.
+* YouTube 는 Google LLC 의 상표입니다. 이 프로젝트는 YouTube · Google 과 관련이 없으며 승인이나 후원을 받지 않았습니다.
+
+---
+
+## 📄 라이선스
+
+이 저장소의 소스 코드는 [MIT 라이선스](LICENSE)로 공개합니다.
+
+설치 파일에는 FFmpeg(**GPL-3.0**), Deno(MIT), yt-dlp(Unlicense)와 Python · Rust · JavaScript 패키지, 글꼴(OFL-1.1)이 함께 들어 있고,
+각각 자기 라이선스를 따릅니다. FFmpeg 와 mutagen 이 GPL 이므로 **설치 파일로 배포되는 실행 파일 묶음은 GPL 조건**을 함께 따릅니다.
+자세한 내용은 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 에, 각 라이선스 전문은 설치 폴더의 `backend\licenses\` 에 있습니다.
