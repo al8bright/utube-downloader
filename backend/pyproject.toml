@@ -1,0 +1,48 @@
+[project]
+name = "utube"
+version = "2.0.0"
+description = "YouTube Music Downloader backend: search, queue and batch download (yt-dlp + FFmpeg)"
+readme = "README.md"
+authors = [
+    { name = "al8bright" }
+]
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "pydantic>=2.9",
+    "uvicorn[standard]>=0.32",
+    # 유튜브가 서명 방식을 바꾸면 낡은 yt-dlp 는 403 으로 거부당한다. 빌드 때마다 최신으로 올린다.
+    # [default] 에는 서명 계산 스크립트(yt-dlp-ejs)·인증서·압축 해제 모듈이 들어 있다
+    "yt-dlp[default]>=2026.8.19",
+]
+
+[project.scripts]
+utube = "utube:main"
+
+[build-system]
+requires = ["uv_build>=0.12.22,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28",
+    "pyinstaller>=6.11",
+    "pytest>=8.3",
+    "ruff>=0.8",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E501", "B905"]
+
+[tool.uv]
+environments = ["sys_platform == 'win32'"]

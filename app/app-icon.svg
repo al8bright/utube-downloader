@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- 앱 아이콘 원본. `pnpm tauri icon app-icon.svg` 로 src-tauri/icons 를 다시 만든다.
+       화면의 로고(ui.tsx Logo)와 같은 모양: 분홍 꺾쇠 + 재생 삼각형 + 청록 다운로드 막대, 바탕은 서울 나이트 bg 색 -->
+  <defs>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="0.55" result="b" />
+      <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+    </filter>
+  </defs>
+  <rect x="24" y="24" width="976" height="976" rx="208" fill="#07050F" />
+  <rect x="28" y="28" width="968" height="968" rx="204" fill="none" stroke="#FF2E97" stroke-opacity="0.35" stroke-width="8" />
+  <g transform="translate(160 160) scale(22)">
+    <path d="M3 11V3h8M29 21v8h-8" fill="none" stroke="#FF2E97" stroke-width="2.6" stroke-linecap="square" filter="url(#glow)" />
+    <path d="M12.5 8.5 L22.5 14.5 L12.5 20.5 Z" fill="#EEEAFF" />
+    <rect x="9" y="24" width="14" height="2" fill="#00E5FF" filter="url(#glow)" />
+  </g>
+</svg>

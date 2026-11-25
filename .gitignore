@@ -7,3 +7,6 @@ dist/
 *.flac
 .omc/
 .utube_tmp/
+!backend/packaging/*.spec
+node_modules/
+backend/.tools/
