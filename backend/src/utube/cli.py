@@ -8,13 +8,6 @@ import sys
 from utube import __version__
 
 
-def cmd_serve(args: argparse.Namespace) -> int:
-    from utube.api.server import serve
-
-    serve(host=args.host, port=args.port, parent_pid=args.parent_pid)
-    return 0
-
-
 def cmd_doctor(args: argparse.Namespace) -> int:
     """설치 파일을 만들기 전에 꼭 필요한 것이 들어 있는지 확인한다."""
     import subprocess
@@ -61,11 +54,9 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--version", action="version", version=__version__)
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    s = sub.add_parser("serve", help="run the local API server")
-    s.add_argument("--host", default="127.0.0.1")
-    s.add_argument("--port", type=int, default=8766, help="0 picks a free port")
-    s.add_argument("--parent-pid", type=int, help="exit when this process exits (Tauri)")
-    s.set_defaults(fn=cmd_serve)
+    from utube.api.base import add_serve_command
+
+    add_serve_command(sub)
 
     d = sub.add_parser("doctor", help="check yt-dlp, FFmpeg and JS runtimes")
     d.add_argument("--bundled", action="store_true", help="require the FFmpeg and Deno shipped next to the executable")

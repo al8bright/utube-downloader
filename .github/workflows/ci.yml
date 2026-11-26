@@ -1,5 +1,5 @@
-# 푸시·PR 마다 백엔드 테스트와 화면·Tauri 빌드 검사를 돌린다.
-# 설치 파일(NSIS)은 만들지 않는다. FFmpeg·Deno 를 넣는 전체 빌드는 scripts/build_app.ps1 로 로컬에서 한다.
+# 푸시·PR마다 백엔드 테스트와 화면·Tauri 빌드 검사를 돌린다. 설치 파일은 만들지 않는다(scripts/build_app.ps1로 로컬에서).
+# (공통 파일: 네 앱이 같은 내용을 쓴다. 앱 고유 검사는 extra.yml. docs/STRUCTURE.md)
 name: CI
 
 on:
@@ -8,21 +8,23 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   backend:
-    name: Backend (pytest · ruff)
-    # 프로세스 정리(Toolhelp)·경로 처리가 Windows 전용이라 Windows 에서 돌린다
+    name: Backend (ruff · pytest)
     runs-on: windows-latest
     defaults:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.4.0
         with:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
@@ -31,17 +33,17 @@ jobs:
       - run: uv run pytest -q
 
   app:
-    name: App (tsc · oxlint · vite · cargo check)
+    name: App (oxlint · tsc · vite · cargo check)
     runs-on: windows-latest
     defaults:
       run:
         working-directory: app
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
         with:
           version: 11
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
@@ -53,6 +55,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: app/src-tauri
-      # build.rs 가 비어 있는 백엔드 폴더를 만들어 주므로 PyInstaller 없이도 검사된다
+      # build.rs가 빈 백엔드 폴더를 만들어 주므로 PyInstaller 없이도 검사된다
       - run: cargo check --locked
         working-directory: app/src-tauri

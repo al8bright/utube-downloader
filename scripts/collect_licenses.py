@@ -1,4 +1,5 @@
 """Collect the licenses of third-party code shipped in the installer.
+(Shared file: the four apps use the same content. docs/STRUCTURE.md)
 
 build_app.ps1 runs it three times and puts the results in the installer's licenses folder:
 
@@ -6,9 +7,9 @@ build_app.ps1 runs it three times and puts the results in the installer's licens
     python collect_licenses.py cargo app/src-tauri OUT.txt
     python collect_licenses.py npm app OUT.txt
 
-python  Python packages frozen into utube-backend.exe (runtime dependencies only, read from stdin,
+python  Python packages frozen into the backend executable (runtime dependencies only, read from stdin,
         so pytest and PyInstaller are left out), plus the interpreter's own license.
-cargo   Rust crates compiled into youtube-downloader.exe: normal dependencies of the app crate
+cargo   Rust crates compiled into the app executable: normal dependencies of the app crate
         for Windows x64. Build scripts and dev dependencies are not shipped and are left out.
 npm     JavaScript packages in package.json "dependencies" (bundled into the page by Vite).
 
@@ -24,6 +25,7 @@ import sys
 from importlib import metadata
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
 LICENSE_NAME = re.compile(r"^(licen[cs]e|copying|notice|copyright)", re.I)
 RULE = "-" * 78
 
@@ -45,6 +47,14 @@ def _read(p: Path) -> str:
 
 # ---------------------------------------------------------------------- python
 
+def _own_name() -> str:
+    """The backend's own package (listed by `uv export`, but it is ours, MIT)."""
+    import tomllib
+
+    with open(ROOT / "backend" / "pyproject.toml", "rb") as f:
+        return tomllib.load(f)["project"]["name"].lower()
+
+
 def _requirement_names(lines: list[str]) -> list[str]:
     names = []
     for line in lines:
@@ -52,7 +62,7 @@ def _requirement_names(lines: list[str]) -> list[str]:
         if not line or line.startswith(("#", "-", ".")):
             continue
         name = re.split(r"[\s=<>!~;\[]", line, maxsplit=1)[0]
-        if name and name.lower() != "utube":
+        if name and name.lower() != _own_name():
             names.append(name)
     return sorted(set(names), key=str.lower)
 
@@ -92,7 +102,7 @@ def collect_python(out: str) -> None:
     if py_license.is_file():
         rows.append(f"Python {sys.version.split()[0]}  —  PSF-2.0 (interpreter and standard library)")
         texts.append((f"Python {sys.version.split()[0]}: LICENSE.txt", _read(py_license)))
-    _write(out, "Python packages bundled in utube-backend.exe", rows, texts)
+    _write(out, "Python packages bundled in the backend executable", rows, texts)
     if skipped:
         print(f"skipped (not installed on this platform): {', '.join(skipped)}")
 
@@ -131,7 +141,7 @@ def collect_cargo(manifest_dir: str, out: str) -> None:
         for f in dict.fromkeys(files):
             if f.is_file():
                 texts.append((f"{label}: {f.name}", _read(f)))
-    _write(out, "Rust crates compiled into youtube-downloader.exe", rows, texts)
+    _write(out, "Rust crates compiled into the app executable", rows, texts)
 
 
 # ---------------------------------------------------------------------- npm

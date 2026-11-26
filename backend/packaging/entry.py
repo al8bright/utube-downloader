@@ -1,4 +1,4 @@
-"""PyInstaller 진입점: `uv run utube` 와 같은 명령줄(앱은 `utube-backend serve ...` 로 띄운다)."""
+"""PyInstaller 진입점: `uv run utube`과 같은 명령줄(앱은 `utube-backend serve ...`로 띄운다). (공통 파일)"""
 
 import sys
 

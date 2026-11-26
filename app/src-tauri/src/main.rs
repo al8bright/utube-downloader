@@ -1,6 +1,6 @@
-// Prevents additional console window on Windows in release, DO NOT REMOVE!!
+// 릴리스 빌드에서 콘솔 창이 따로 뜨지 않게 한다. 지우지 말 것
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    youtube_downloader_lib::run();
+    app_lib::run();
 }

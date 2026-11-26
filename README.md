@@ -179,15 +179,16 @@ cd app;     pnpm exec tsc -b; pnpm lint
 
 | 경로 | 내용 |
 | :--- | :--- |
-| `app/src/` | 화면. `App.tsx` 틀·사이드바 · `Search.tsx` · `Queue.tsx` · `Files.tsx` · `ui.tsx` 공통 부품 · `api.ts` 백엔드 연결 · `format.ts` 표시 문자열 · `index.css` 디자인 토큰 |
-| `app/src-tauri/` | Tauri 셸. `src/lib.rs` 가 백엔드를 띄우고 주소·토큰을 화면에 넘긴다 |
+| `app/src/` | 화면. `App.tsx` 틀·사이드바 · `Search.tsx` · `Queue.tsx` · `Files.tsx` · `ui.tsx` 공통 부품 · `backend.ts` 백엔드 연결(공통) · `appInfo.ts` 앱 고유 값 · `api.ts` 이벤트와 응답 형태 · `format.ts` 표시 문자열 · `index.css` 디자인 토큰 |
+| `app/src-tauri/` | Tauri 셸. `src/lib.rs`(공통)가 백엔드를 띄우고 주소·토큰을 화면에 넘긴다. `src/app_info.rs` 는 앱 고유 값 |
 | `backend/src/utube/core/service.py` | 검색·대기열·배치 상태 기계 |
 | `backend/src/utube/core/` | `ytdl.py` yt-dlp 연동 · `storage.py` 저장 폴더·파일 · `urls.py` 링크 해석 · `text.py` 표시 문자열 · `proc.py` 프로세스 관리 |
-| `backend/src/utube/api/server.py` | HTTP/WebSocket API |
+| `backend/src/utube/api/server.py` | HTTP/WebSocket API. 보안과 `serve` 는 공통 파일 `api/base.py`, 앱 이름·포트는 `app_info.py` |
 | `backend/packaging/` | PyInstaller 설정 |
 | `backend/tests/` | 백엔드 테스트 |
 | `scripts/build_app.ps1` | 설치 파일 빌드 |
 | `scripts/collect_licenses.py` | 설치 파일에 넣을 서드파티 라이선스 모으기 |
+| `scripts/check_structure.py` | 네 앱(jamak_converter 등)의 공통 파일이 같은지 확인. 기준은 jamak_converter 의 `docs/STRUCTURE.md` |
 | `licenses/` · `THIRD_PARTY_NOTICES.md` | 함께 배포하는 구성 요소의 라이선스 안내 |
 | `.github/workflows/ci.yml` | 푸시·PR 검사 |
 

@@ -1,88 +1,16 @@
-// 백엔드 클라이언트. Tauri 안에서는 셸이 백엔드를 띄우고 주소와 토큰을 알려 준다.
-// 브라우저(pnpm dev)에서는 VITE_UTUBE_URL 또는 127.0.0.1:8766 의 `utube serve` 에 붙는다.
+// 백엔드 클라이언트: 연결은 공통 파일 `backend.ts` 가 맡고, 여기서는 이벤트와 응답 형태를 둔다.
 
-export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+import { socket } from "./backend";
 
-let base = "";
-let token = "";
-
-export async function connect(): Promise<void> {
-  if (inTauri) {
-    const { invoke } = await import("@tauri-apps/api/core");
-    const info = await invoke<{ url: string; token: string }>("backend_info");
-    base = info.url;
-    token = info.token;
-  } else {
-    base = import.meta.env.VITE_UTUBE_URL ?? "http://127.0.0.1:8766";
-  }
-  for (let i = 0; i < 150; i++) {
-    try {
-      const r = await fetch(`${base}/health`);
-      if (r.ok) return;
-    } catch {
-      /* 아직 뜨지 않았다 */
-    }
-    await new Promise((res) => setTimeout(res, 200));
-  }
-  throw new Error(`백엔드(${base})에 연결하지 못했습니다.`);
-}
-
-export class ApiError extends Error {
-  status: number;
-  constructor(status: number, message: string) {
-    super(message);
-    this.status = status;
-  }
-}
-
-async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const r = await fetch(`${base}${path}`, {
-    method,
-    headers: { "content-type": "application/json", ...(token ? { "x-utube-token": token } : {}) },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  if (!r.ok) {
-    let detail = r.statusText;
-    try {
-      const j = await r.json();
-      detail = typeof j.detail === "string" ? j.detail : "요청 값이 올바르지 않습니다.";
-    } catch {
-      /* statusText 를 쓴다 */
-    }
-    throw new ApiError(r.status, detail);
-  }
-  return r.json() as Promise<T>;
-}
-
-export const api = {
-  get: <T,>(p: string) => call<T>("GET", p),
-  post: <T,>(p: string, b?: unknown) => call<T>("POST", p, b ?? {}),
-  put: <T,>(p: string, b: unknown) => call<T>("PUT", p, b),
-  del: <T,>(p: string) => call<T>("DELETE", p),
-};
+export { ApiError, api, connect, inTauri } from "./backend";
 
 /** 상태·검색 변경을 받는다. 끊기면 1초 뒤 다시 붙는다. 돌려준 함수로 닫는다. */
 export function events(handlers: { state: (s: AppData) => void; search: (s: SearchData) => void; link: (up: boolean) => void }): () => void {
-  let closed = false;
-  let ws: WebSocket | null = null;
-  const open = () => {
-    ws = new WebSocket(`${base.replace(/^http/, "ws")}/events${token ? `?token=${token}` : ""}`);
-    ws.onopen = () => handlers.link(true);
-    ws.onmessage = (m) => {
-      const e = JSON.parse(m.data);
-      if (e.type === "state") handlers.state(e);
-      else if (e.type === "search") handlers.search(e);
-    };
-    ws.onclose = () => {
-      handlers.link(false);
-      if (!closed) setTimeout(open, 1000);
-    };
-  };
-  open();
-  return () => {
-    closed = true;
-    ws?.close();
-  };
+  return socket("/events", (data) => {
+    const e = data as { type: string };
+    if (e.type === "state") handlers.state(e as unknown as AppData);
+    else if (e.type === "search") handlers.search(e as unknown as SearchData);
+  }, handlers.link);
 }
 
 // ---------------------------------------------------------------------- 형태
