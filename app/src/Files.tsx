@@ -3,7 +3,7 @@ import { api, type FileEntry } from "./api";
 import { useApp } from "./ctx";
 import { ICONS } from "./icons";
 import { FILE_SORTS, type FileSort, filterSortFiles, formatFileDate, formatSize } from "./format";
-import { Chip, Ellipsis, Empty, Icon, Modal, Screen } from "./ui";
+import { Chip, Ellipsis, Empty, eyebrow, Icon, Modal, Screen } from "./ui";
 
 const SPEC = {
   audio: { title: "음성", word: "음성", exts: ["전체", "MP3", "FLAC"], empty: "받은 음성 파일이 없습니다." },
@@ -47,9 +47,8 @@ export function FilesScreen({ kind }: { kind: "audio" | "video" }) {
   };
 
   return (
-    <Screen title={`받은 파일 · ${spec.title}`} tag="LIBRARY"
-      summary={entries.length ? `${spec.word} ${entries.length}개 · ${formatSize(total)}` : undefined}
-      aside={<button className="btn cyan-ghost" onClick={() => act(() => api.post("/open/folder"))}><Icon d={ICONS.folder} size={14} /> 폴더 열기</button>}
+    <Screen title={`받은 파일 · ${spec.title}`} eyebrow={eyebrow("LIBRARY", entries.length ? `${spec.word} ${entries.length}개 · ${formatSize(total)}` : undefined)}
+      actions={<button className="btn cyan-ghost" onClick={() => act(() => api.post("/open/folder"))}><Icon d={ICONS.folder} size={14} /> 폴더 열기</button>}
       bar={<>
         <span className="path-note"><span>저장 위치</span><Ellipsis title={files?.dir}>{files?.dir ?? data.settings.save_dir}</Ellipsis></span>
         <span className="spacer" />

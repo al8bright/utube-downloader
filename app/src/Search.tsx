@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type SearchResult, type WithMessage } from "./api";
 import { useApp } from "./ctx";
 import { ICONS } from "./icons";
-import { Bar, Check, Empty, Icon, Screen } from "./ui";
+import { Bar, Check, Empty, eyebrow, Icon, Screen } from "./ui";
 
 const LIMIT = 100; // 백엔드 SEARCH_LIMIT 과 같다
 const EMPTY: Set<string> = new Set();
@@ -65,7 +65,7 @@ export function SearchScreen() {
   else if (search.results.length && !rows.length) empty = "아직 담지 않은 결과가 없습니다.";
 
   return (
-    <Screen title="검색" tag="SEARCH" summary={search.results.length ? `결과 ${search.results.length}개` : undefined}
+    <Screen title="검색" eyebrow={eyebrow("SEARCH", search.results.length ? `결과 ${search.results.length}개` : undefined)}
       bar={<>
         <span className="bar-count">{pickedCount ? `${pickedCount}개 선택` : "선택한 곡 없음"}</span>
         <span className="bar-hint">형식과 저장 위치는 대기열 화면에서 정합니다</span>

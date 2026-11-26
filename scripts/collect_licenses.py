@@ -1,7 +1,7 @@
 """Collect the licenses of third-party code shipped in the installer.
 (Shared file: the four apps use the same content. docs/STRUCTURE.md)
 
-build_app.ps1 runs it three times and puts the results in the installer's licenses folder:
+build_app.ps1 (and build_app.sh on a Mac) runs it three times and puts the results in the installer's licenses folder:
 
     uv export --no-dev --no-hashes --format requirements-txt | uv run python collect_licenses.py python OUT.txt
     python collect_licenses.py cargo app/src-tauri OUT.txt
@@ -10,7 +10,8 @@ build_app.ps1 runs it three times and puts the results in the installer's licens
 python  Python packages frozen into the backend executable (runtime dependencies only, read from stdin,
         so pytest and PyInstaller are left out), plus the interpreter's own license.
 cargo   Rust crates compiled into the app executable: normal dependencies of the app crate
-        for Windows x64. Build scripts and dev dependencies are not shipped and are left out.
+        for the machine that builds (Windows x64, or Apple Silicon for the Mac app). Build scripts
+        and dev dependencies are not shipped and are left out.
 npm     JavaScript packages in package.json "dependencies" (bundled into the page by Vite).
 
 Each output lists name, version, declared license and source URL, then the full license texts.
@@ -109,9 +110,15 @@ def collect_python(out: str) -> None:
 
 # ---------------------------------------------------------------------- cargo
 
+def _host_triple() -> str:
+    """The Rust target this machine builds for, e.g. x86_64-pc-windows-msvc or aarch64-apple-darwin."""
+    info = subprocess.run(["rustc", "-vV"], capture_output=True, text=True, check=True).stdout
+    return next(line.split(":", 1)[1].strip() for line in info.splitlines() if line.startswith("host:"))
+
+
 def collect_cargo(manifest_dir: str, out: str) -> None:
     raw = subprocess.run(
-        ["cargo", "metadata", "--format-version", "1", "--locked", "--filter-platform", "x86_64-pc-windows-msvc"],
+        ["cargo", "metadata", "--format-version", "1", "--locked", "--filter-platform", _host_triple()],
         cwd=manifest_dir, capture_output=True, text=True, encoding="utf-8", check=True,
     ).stdout
     meta = json.loads(raw)

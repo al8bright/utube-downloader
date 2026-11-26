@@ -51,6 +51,8 @@ SHARED = [
     "app/tsconfig.node.json",
     "app/vite.config.ts",
     "app/src/backend.ts",
+    "app/src/common.tsx",
+    "app/src/base.css",
     "app/src-tauri/.gitignore",
     "app/src-tauri/build.rs",
     "app/src-tauri/src/lib.rs",

@@ -5,7 +5,7 @@ import { ICONS } from "./icons";
 import {
   describeQueueStatus, describeQueueSummary, isSelectable, QUEUE_FILTERS, type QueueFilter, queueBucket, summarizeQueue, unitFor,
 } from "./format";
-import { Bar, Check, Chip, Ellipsis, Empty, Icon, Screen } from "./ui";
+import { Bar, Check, Chip, Ellipsis, Empty, eyebrow, Icon, Screen } from "./ui";
 
 const FORMATS: Format[] = ["MP3", "FLAC", "MP4"];
 const QUALITIES: Quality[] = ["320", "256", "192"];
@@ -55,7 +55,7 @@ export function QueueScreen() {
   };
 
   return (
-    <Screen title="대기열" tag="QUEUE" summary={`${describeQueueSummary(items, unit)}${running ? " · 받는 중" : ""}`}
+    <Screen title="대기열" eyebrow={eyebrow("QUEUE", `${describeQueueSummary(items, unit)}${running ? " · 받는 중" : ""}`)}
       bar={running ? <>
         <span className="spacer" />
         <span className="bar-hint">중단하면 지금 곡까지만 멈추고 나머지는 대기 중으로 남습니다</span>
