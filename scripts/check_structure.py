@@ -1,15 +1,15 @@
-"""네 앱(jamak_converter, youtube_down, video_converter, audio_converter)이 같은 구조인지 확인한다.
+"""네 앱(jamak, utube, videoconverter, audioconverter)이 같은 구조인지 확인한다.
 (공통 파일: 네 앱이 같은 내용을 쓴다. 기준 문서는 jamak_converter/docs/STRUCTURE.md)
 
     python scripts/check_structure.py              이 저장소 확인 + 옆 폴더의 다른 앱과 공통 파일 비교
     python scripts/check_structure.py --diff       다른 곳을 diff로 보여 준다
     python scripts/check_structure.py --copy-from jamak_converter
-                                                   그 저장소의 공통 파일을 이 저장소로 복사한다(이름은 바꿔서)
+                                                   그 폴더의 공통 파일을 이 저장소로 복사한다(이름은 바꿔서)
 
 확인하는 것
   1. 있어야 하는 파일이 있는지
   2. 앱 이름·포트가 app_info.py, app_info.rs, appInfo.ts, tauri.conf.json에서 서로 맞는지
-  3. 공통 파일이 옆 폴더의 다른 앱과 같은지. 줄 끝(CRLF/LF)은 무시하고, 앱 이름이 든 파일(NAMED)은
+  3. 공통 파일이 옆 폴더의 다른 앱과 같은지(폴더 이름이 아니라 백엔드 패키지 이름으로 찾는다). 줄 끝(CRLF/LF)은 무시하고, 앱 이름이 든 파일(NAMED)은
      이름을 바꿔 비교한다
 문제가 있으면 종료 코드 1. 표준 라이브러리만 쓴다.
 """
@@ -25,13 +25,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# 저장소 폴더 이름 → 백엔드 패키지 이름. 새 앱을 만들면 여기에 더한다(네 저장소 모두)
-APPS = {
-    "jamak_converter": "jamak",
-    "youtube_down": "utube",
-    "video_converter": "videoconverter",
-    "audio_converter": "audioconverter",
-}
+# 백엔드 패키지 이름(backend/src/<패키지>). 새 앱을 만들면 여기에 더한다(네 저장소 모두).
+# 옆 폴더는 이름이 아니라 이 패키지로 알아본다 — clone한 폴더 이름은 PC마다 다를 수 있다
+# (예: youtube_down, utube-downloader)
+APPS = {"jamak", "utube", "videoconverter", "audioconverter"}
 
 # 네 앱이 같은 내용을 쓰는 파일. {pkg}는 백엔드 패키지 이름
 SHARED = [
@@ -168,12 +165,14 @@ def check_values(root: Path, pkg: str) -> list[str]:
 
 
 def siblings(pkg: str) -> dict[str, tuple[Path, str]]:
-    """옆 폴더에 있고 이 구조로 바뀐 다른 앱."""
+    """옆 폴더에 있고 이 구조로 바뀐 다른 앱. 키는 실제 폴더 이름이다."""
     out = {}
-    for folder, other in APPS.items():
-        p = ROOT.parent / folder
-        if other != pkg and (p / "app" / "src-tauri").is_dir() and own_pkg(p) == other:
-            out[folder] = (p, other)
+    for p in sorted(ROOT.parent.iterdir()):
+        if p == ROOT or not (p / "app" / "src-tauri").is_dir():
+            continue
+        other = own_pkg(p)
+        if other in APPS and other != pkg:
+            out[p.name] = (p, other)
     return out
 
 
